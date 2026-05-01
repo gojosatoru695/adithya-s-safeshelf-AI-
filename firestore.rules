@@ -1,0 +1,51 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidMedicine(data) {
+      return data.keys().hasAll(['name', 'expiryDate', 'userId', 'createdAt', 'updatedAt', 'quantity', 'unit', 'status', 'dosage']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             data.userId == request.auth.uid &&
+             data.quantity is number &&
+             data.unit is string &&
+             data.dosage is string &&
+             data.status in ['active', 'expiring', 'expired', 'low-stock'] &&
+             data.expiryDate is timestamp &&
+             data.createdAt == request.time;
+    }
+
+    match /medicines/{medicineId} {
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      allow create: if isSignedIn() && 
+                    isValidMedicine(request.resource.data) &&
+                    isValidId(medicineId);
+      
+      allow update: if isSignedIn() && 
+                    isOwner(resource.data.userId) &&
+                    request.resource.data.userId == resource.data.userId &&
+                    request.resource.data.createdAt == resource.data.createdAt &&
+                    request.resource.data.updatedAt == request.time &&
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'dosage', 'expiryDate', 'quantity', 'unit', 'status', 'updatedAt']);
+      
+      allow delete: if isSignedIn() && isOwner(resource.data.userId);
+    }
+  }
+}

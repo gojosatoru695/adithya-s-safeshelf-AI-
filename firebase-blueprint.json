@@ -1,0 +1,28 @@
+{
+  "entities": {
+    "Medicine": {
+      "title": "Medicine",
+      "description": "An item in the medicine inventory",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "dosage": { "type": "string" },
+        "expiryDate": { "type": "string", "format": "date-time" },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "expiring", "expired", "low-stock"] },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "expiryDate", "userId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "medicines/{medicineId}": {
+      "schema": "Medicine",
+      "description": "Collection of medicines tracked by users"
+    }
+  }
+}

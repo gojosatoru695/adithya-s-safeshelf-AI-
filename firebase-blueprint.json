@@ -17,12 +17,34 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "expiryDate", "userId", "createdAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile and preferences",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "fullName": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "provider": { "type": "string" },
+        "mobileNumber": { "type": "string" },
+        "preferredLanguage": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "lastLogin": { "type": "string", "format": "date-time" },
+        "onboardingCompleted": { "type": "boolean" }
+      },
+      "required": ["uid", "fullName", "email", "role", "provider", "preferredLanguage", "onboardingCompleted"]
     }
   },
   "firestore": {
     "medicines/{medicineId}": {
       "schema": "Medicine",
       "description": "Collection of medicines tracked by users"
+    },
+    "users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile data"
     }
   }
 }

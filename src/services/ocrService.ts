@@ -9,9 +9,9 @@ export interface OCRResult {
 
 export const ocrService = {
   processImage: async (imageFile: File): Promise<OCRResult> => {
-    const worker = await createWorker('eng');
-    
+    let worker;
     try {
+      worker = await createWorker('eng');
       const { data: { text, confidence } } = await worker.recognize(imageFile);
       await worker.terminate();
 
@@ -23,7 +23,8 @@ export const ocrService = {
         rawText: text
       };
     } catch (error) {
-      await worker.terminate();
+      if (worker) await worker.terminate();
+      console.error("OCR Service Error:", error);
       throw error;
     }
   },

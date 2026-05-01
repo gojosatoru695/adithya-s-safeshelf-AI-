@@ -1,6 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-
-export type Category = 'Medicine' | 'Food' | 'Supplement' | 'Chemical' | 'Other';
+import type { Category } from '../types.ts';
 
 const CATEGORY_KEYWORDS: Record<Category, string[]> = {
   Medicine: [

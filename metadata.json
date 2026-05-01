@@ -1,6 +1,6 @@
 {
   "name": "SafeShelf AI",
-  "description": "AI-powered medicine and household inventory management system featuring OCR scanning, expiry alerts, and smart insights.",
+  "description": "AI-powered medicine and household inventory management system with a secure premium authentication system, OCR scanning, and smart refill planning.",
   "requestFramePermissions": [
     "camera",
     "notifications",

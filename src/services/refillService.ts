@@ -1,4 +1,4 @@
-import { Medicine } from './inventoryService.ts';
+import type { Medicine } from '../types.ts';
 
 export interface RefillPrediction {
   medicineId: string;

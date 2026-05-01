@@ -1,16 +1,18 @@
 import React, { useState, useRef } from 'react';
-import { Camera, X, Loader2, CheckCircle2, AlertCircle, Upload } from 'lucide-react';
+import { Camera, X, Loader2, CheckCircle2, AlertCircle, Upload, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ocrService, OCRResult } from '../services/ocrService.ts';
-import { classifyItem, Category } from '../services/categorizationService.ts';
+import { classifyItem } from '../services/categorizationService.ts';
+import type { Category } from '../types.ts';
 import { Timestamp } from 'firebase/firestore';
 
 interface OCRScannerProps {
   onClose: () => void;
   onSave: (data: any) => Promise<void>;
+  aiMode?: 'astra' | 'quantis';
 }
 
-export const OCRScanner = ({ onClose, onSave }: OCRScannerProps) => {
+export const OCRScanner = ({ onClose, onSave, aiMode = 'astra' }: OCRScannerProps) => {
   const [step, setStep] = useState<'upload' | 'scanning' | 'confirm'>('upload');
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [ocrData, setOcrData] = useState<OCRResult | null>(null);
@@ -194,6 +196,16 @@ export const OCRScanner = ({ onClose, onSave }: OCRScannerProps) => {
                         <div className="h-full bg-blue-600 transition-all" style={{ width: `${ocrData?.confidence || 0}%` }} />
                       </div>
                     </div>
+                    {aiMode === 'astra' && (
+                      <div className="mt-2 p-3 bg-indigo-50 border border-indigo-100 rounded-xl">
+                         <p className="text-[10px] font-bold text-indigo-600 flex items-center gap-1 mb-1 italic">
+                           <Sparkles size={10} /> Astra's Prescription Hint
+                         </p>
+                         <p className="text-[10px] text-indigo-500 font-medium leading-tight">
+                           I've detected this might be a prescription. Would you like me to set up reminders for {editData.name}?
+                         </p>
+                      </div>
+                    )}
                   </div>
                   
                   <div className="flex-1 space-y-4">

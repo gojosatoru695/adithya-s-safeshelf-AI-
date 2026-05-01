@@ -1,5 +1,4 @@
-import { Medicine } from '../services/inventoryService.ts';
-import { Timestamp } from 'firebase/firestore';
+import type { Medicine } from '../types.ts';
 
 export interface SmartRefillRecommendation {
   itemId: string;
@@ -24,7 +23,9 @@ export function calculateSmartRefillScores(medicines: Medicine[], monthlyBudget:
     // 2. Expiry Risk Score (20% weight)
     // Days until expiry. < 7 days = high risk.
     const now = new Date();
-    const expiryDate = item.expiryDate instanceof Timestamp ? item.expiryDate.toDate() : new Date(item.expiryDate);
+    const expiryDate = (item.expiryDate && typeof item.expiryDate.toDate === 'function') 
+      ? item.expiryDate.toDate() 
+      : new Date(item.expiryDate);
     const daysToExpiry = Math.max(0, (expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
     const expiryRiskScore = Math.max(0, Math.min(100, (30 - daysToExpiry) * 3.33));
 
@@ -39,7 +40,9 @@ export function calculateSmartRefillScores(medicines: Medicine[], monthlyBudget:
     // If not refilled in 30 days, higher priority.
     let historicalPriorityScore = 50;
     if (item.lastRefilledAt) {
-      const lastRefilled = item.lastRefilledAt instanceof Timestamp ? item.lastRefilledAt.toDate() : new Date(item.lastRefilledAt);
+      const lastRefilled = (item.lastRefilledAt && typeof item.lastRefilledAt.toDate === 'function') 
+        ? item.lastRefilledAt.toDate() 
+        : new Date(item.lastRefilledAt);
       const daysSinceRefill = (now.getTime() - lastRefilled.getTime()) / (1000 * 60 * 60 * 24);
       historicalPriorityScore = Math.min(100, daysSinceRefill * 3.33);
     }

@@ -6,7 +6,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import { geminiService } from '../services/geminiService.ts';
-import { Medicine } from '../services/inventoryService.ts';
+import type { Medicine } from '../types.ts';
 
 interface Message {
   id: string;
@@ -27,6 +27,12 @@ type Mode = 'menu' | 'chat' | 'voice' | 'settings';
 interface AssistantHubProps {
   medicines: Medicine[];
   onCommand: (command: string, args?: any) => void;
+  isOpen: boolean;
+  setIsOpen: (open: boolean) => void;
+  mode: Mode;
+  setMode: (mode: Mode) => void;
+  aiMode: 'astra' | 'quantis';
+  setAiMode: (mode: 'astra' | 'quantis') => void;
 }
 
 type LanguageCode = 'en-IN' | 'hi-IN' | 'te-IN' | 'kn-IN';
@@ -49,9 +55,16 @@ const FEEDBACK_MESSAGES: Record<LanguageCode, {
   'kn-IN': { processing: 'ಸಂಸ್ಕರಿಸಲಾಗುತ್ತಿದೆ...', unknown: "ಅರ್ಥವಾಗಲಿಲ್ಲ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.", error: 'ದೋಷ ಕಂಡುಬಂದಿದೆ.' }
 };
 
-export function AssistantHub({ medicines, onCommand }: AssistantHubProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [mode, setMode] = useState<Mode>('menu');
+export function AssistantHub({ 
+  medicines, 
+  onCommand,
+  isOpen,
+  setIsOpen,
+  mode,
+  setMode,
+  aiMode,
+  setAiMode
+}: AssistantHubProps) {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([
     { id: 'welcome', role: 'assistant', content: 'SafeShelf AI Hub is ready. How can I help?', timestamp: new Date() }
@@ -72,10 +85,18 @@ export function AssistantHub({ medicines, onCommand }: AssistantHubProps) {
   // --- Voice Logic ---
   const speak = useCallback((text: string) => {
     if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = currentLang;
-      window.speechSynthesis.speak(utterance);
+      try {
+        window.speechSynthesis.cancel();
+        // Clean markdown for speech
+        const cleanText = text.replace(/[#*|`\[\]\(\)]/g, '').replace(/:---/g, '').substring(0, 200);
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        utterance.lang = currentLang;
+        utterance.pitch = 1.1;
+        utterance.rate = 0.9;
+        window.speechSynthesis.speak(utterance);
+      } catch (e) {
+        console.error("Assistant speech failed", e);
+      }
     }
   }, [currentLang]);
 
@@ -114,10 +135,43 @@ export function AssistantHub({ medicines, onCommand }: AssistantHubProps) {
     setInput('');
     setIsLoading(true);
     try {
-      const response = await geminiService.chatQuery(text, medicines);
+      const response = await geminiService.chatQuery(text, medicines, aiMode);
       setMessages(prev => [...prev, { id: (Date.now()+1).toString(), role: 'assistant', content: response, timestamp: new Date() }]);
+      
+      // Auto-speak Astra responses for accessibility if in Astra mode
+      if (aiMode === 'astra' && mode === 'voice') {
+        speak(response);
+      }
     } catch {
       setMessages(prev => [...prev, { id: 'err', role: 'assistant', content: 'AI Service error.', timestamp: new Date() }]);
+    } finally { setIsLoading(false); }
+  };
+
+  const handleReviewSummary = async (name: string) => {
+    setIsLoading(true);
+    setMode('chat');
+    try {
+      const data = await geminiService.getReviewSummary(name);
+      if (!data) throw new Error();
+      
+      const content = `
+### Review Summary by Astra ✨
+#### ${name}
+**Reliability Meter: ${data.reliabilityScore}%**
+
+| Category | Astra's Insight |
+| :--- | :--- |
+| **Value for Money** | ${data.summary.valueForMoney} |
+| **Quality** | ${data.summary.quality} |
+| **Packaging** | ${data.summary.packaging} |
+| **Delivery** | ${data.summary.delivery} |
+| **Trust** | ${data.summary.trust} |
+| **Taste** | ${data.summary.taste} |
+| **User Satisfaction** | ${data.summary.userSatisfaction} |
+      `;
+      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', content, timestamp: new Date() }]);
+    } catch {
+      setMessages(prev => [...prev, { id: 'err', role: 'assistant', content: 'Failed to fetch review summary.', timestamp: new Date() }]);
     } finally { setIsLoading(false); }
   };
 
@@ -136,27 +190,45 @@ export function AssistantHub({ medicines, onCommand }: AssistantHubProps) {
             initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: 20 }}
-            className="absolute bottom-20 right-0 w-[400px] max-w-[calc(100vw-2rem)] min-h-[400px] max-h-[calc(100vh-8rem)] bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden flex flex-col"
+            className="absolute bottom-20 right-0 w-[420px] max-w-[calc(100vw-2rem)] min-h-[500px] max-h-[calc(100vh-8rem)] bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden flex flex-col"
           >
             {/* Header */}
-            <div className={`p-5 text-white flex items-center justify-between transition-colors bg-slate-900`}>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-white/10 flex items-center justify-center backdrop-blur-md">
-                  {mode === 'voice' ? <Mic /> : mode === 'chat' ? <MessageSquare /> : <Zap className="text-amber-400" />}
+            <div className={`p-5 text-white flex flex-col transition-colors ${aiMode === 'astra' ? 'bg-blue-600' : 'bg-slate-900'}`}>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-white/10 flex items-center justify-center backdrop-blur-md">
+                    {aiMode === 'quantis' ? <BarChart2 className="text-blue-200" /> : <Sparkles className="text-amber-200" />}
+                  </div>
+                  <div>
+                    <h3 className="font-bold tracking-tight text-lg">{aiMode === 'astra' ? 'Astra Assistant' : 'Quantis Engine'}</h3>
+                    <p className="text-[10px] opacity-70 uppercase tracking-widest font-bold">
+                      {mode === 'menu' ? 'SafeShelf System Active' : `${mode} Mode Active`}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-bold tracking-tight">SafeShelf Hub</h3>
-                  <p className="text-[10px] opacity-70 uppercase tracking-widest font-semibold">
-                    {mode === 'menu' ? 'Select Mode' : `${mode} Mode Active`}
-                  </p>
+                <div className="flex items-center gap-2">
+                  {mode !== 'menu' && (
+                    <button onClick={() => setMode('menu')} className="text-xs font-bold hover:bg-white/10 px-3 py-1 rounded-lg transition-colors">Back</button>
+                  )}
+                  <button onClick={() => setIsOpen(false)} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors cursor-pointer">
+                    <X className="w-5 h-5" />
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                {mode !== 'menu' && (
-                  <button onClick={() => { setMode('menu'); setShowLangs(false); }} className="text-xs font-bold hover:bg-white/10 px-3 py-1 rounded-lg">Back</button>
-                )}
-                <button onClick={() => setIsOpen(false)} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors cursor-pointer">
-                  <X className="w-5 h-5" />
+
+              {/* Mode Toggle */}
+              <div className="flex bg-black/20 rounded-xl p-1 gap-1">
+                <button 
+                  onClick={() => setAiMode('astra')}
+                  className={`flex-1 py-2 px-3 rounded-lg text-[10px] font-bold uppercase tracking-tight transition-all flex items-center justify-center gap-2 ${aiMode === 'astra' ? 'bg-white text-blue-600 shadow-sm' : 'text-white/60 hover:text-white'}`}
+                >
+                  <Sparkles size={12} /> Astra
+                </button>
+                <button 
+                  onClick={() => setAiMode('quantis')}
+                  className={`flex-1 py-2 px-3 rounded-lg text-[10px] font-bold uppercase tracking-tight transition-all flex items-center justify-center gap-2 ${aiMode === 'quantis' ? 'bg-white text-slate-900 shadow-sm' : 'text-white/60 hover:text-white'}`}
+                >
+                  <Zap size={12} /> Quantis
                 </button>
               </div>
             </div>
@@ -164,41 +236,63 @@ export function AssistantHub({ medicines, onCommand }: AssistantHubProps) {
             {/* Container for Content */}
             <div className="flex-1 overflow-y-auto p-4 bg-gray-50/50">
               {mode === 'menu' && (
-                <div className="grid grid-cols-1 gap-3">
-                  {menuOptions.map((opt) => (
-                    <motion.button
-                      whileHover={{ x: 5 }}
-                      onClick={() => {
-                        if (opt.id === 'summary') handleSend('Generate a summary of my current inventory.');
-                        setMode(opt.id as any);
-                      }}
-                      key={opt.id}
-                      className="flex items-center gap-4 p-4 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all group cursor-pointer"
-                    >
-                      <div className={`w-12 h-12 ${opt.color} text-white rounded-xl flex items-center justify-center transition-transform group-hover:scale-110 shadow-lg`}>
-                        {opt.icon}
-                      </div>
-                      <div className="text-left">
-                        <p className="font-bold text-gray-900">{opt.label}</p>
-                        <p className="text-xs text-gray-500 font-medium">{opt.desc}</p>
-                      </div>
-                    </motion.button>
-                  ))}
+                <div className="space-y-4">
+                   {medicines.length > 0 && (
+                     <div className="p-4 bg-blue-50 border border-blue-100 rounded-2xl">
+                       <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-3">Recent Items (Review Summaries)</p>
+                       <div className="flex flex-wrap gap-2">
+                         {medicines.slice(0, 3).map(m => (
+                           <button 
+                            key={m.id}
+                            onClick={() => handleReviewSummary(m.name)}
+                            className="bg-white px-3 py-1.5 rounded-lg text-[10px] font-bold text-slate-700 border border-blue-100 hover:border-blue-300 transition-all shadow-sm"
+                           >
+                            {m.name} Review
+                           </button>
+                         ))}
+                       </div>
+                     </div>
+                   )}
+
+                  <div className="grid grid-cols-1 gap-3">
+                    {menuOptions.map((opt) => (
+                      <motion.button
+                        whileHover={{ x: 5 }}
+                        onClick={() => {
+                          if (opt.id === 'summary') handleSend('Generate a summary of my current inventory.');
+                          setMode(opt.id as any);
+                        }}
+                        key={opt.id}
+                        className="flex items-center gap-4 p-4 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all group cursor-pointer"
+                      >
+                        <div className={`w-12 h-12 ${opt.color} text-white rounded-xl flex items-center justify-center transition-transform group-hover:scale-110 shadow-lg`}>
+                          {opt.icon}
+                        </div>
+                        <div className="text-left">
+                          <p className="font-bold text-gray-900">{opt.label}</p>
+                          <p className="text-xs text-gray-500 font-medium">{opt.desc}</p>
+                        </div>
+                      </motion.button>
+                    ))}
+                  </div>
                 </div>
               )}
 
               {mode === 'chat' && (
-                <div className="space-y-4">
+                <div className="space-y-4 pb-4">
                   {messages.map((msg) => (
                     <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[85%] p-3 rounded-2xl text-sm ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white shadow-sm border border-gray-100 rounded-tl-none'}`}>
-                        <div className="prose prose-sm prose-gray">
+                      <div className={`max-w-[90%] p-4 rounded-2xl text-sm ${msg.role === 'user' ? 'bg-slate-900 text-white rounded-tr-none' : 'bg-white shadow-sm border border-gray-100 rounded-tl-none'}`}>
+                        <div className="prose prose-sm prose-slate max-w-none">
                           <ReactMarkdown>{msg.content}</ReactMarkdown>
                         </div>
                       </div>
                     </div>
                   ))}
-                  {isLoading && <div className="text-xs text-indigo-600 animate-pulse font-bold">SafeShelf AI is composing...</div>}
+                  {isLoading && <div className="flex items-center gap-2 text-xs text-blue-600 animate-pulse font-bold p-2">
+                    <Loader2 size={14} className="animate-spin" />
+                    SafeShelf AI is computing...
+                  </div>}
                   <div ref={messagesEndRef} />
                 </div>
               )}
@@ -206,16 +300,16 @@ export function AssistantHub({ medicines, onCommand }: AssistantHubProps) {
               {mode === 'voice' && (
                 <div className="flex flex-col items-center justify-center h-full py-10 space-y-6">
                   <motion.button
-                    animate={isListening ? { scale: [1, 1.1, 1] } : {}}
+                    animate={isListening ? { scale: [1, 1.1, 1], boxShadow: "0 0 40px rgba(244,63,94,0.3)" } : {}}
                     transition={{ repeat: Infinity, duration: 2 }}
                     onClick={toggleListening}
-                    className={`w-24 h-24 rounded-full flex items-center justify-center transition-all ${isListening ? 'bg-rose-500 text-white shadow-xl shadow-rose-200' : 'bg-slate-900 text-white'}`}
+                    className={`w-28 h-28 rounded-full flex items-center justify-center transition-all ${isListening ? 'bg-rose-500 text-white shadow-xl' : 'bg-slate-900 text-white'}`}
                   >
-                    {isListening ? <Mic className="w-10 h-10" /> : <MicOff className="w-10 h-10" />}
+                    {isListening ? <Mic className="w-12 h-12" /> : <MicOff className="w-12 h-12" />}
                   </motion.button>
-                  <div className="text-center">
-                    <p className="font-bold text-gray-900">{isListening ? 'Listening...' : 'Tap Mic to Start'}</p>
-                    <p className="text-xs text-gray-500 mt-2 max-w-[200px]">{transcript || 'Try saying "Add medicine" or "Check expiry"'}</p>
+                  <div className="text-center px-6">
+                    <p className="font-bold text-gray-900 text-lg">{isListening ? 'Listening...' : 'Tap Mic to Start'}</p>
+                    <p className="text-sm text-gray-500 mt-2">{transcript || 'Try saying "Add medicine" or "Check expiry"'}</p>
                   </div>
                 </div>
               )}
@@ -240,17 +334,32 @@ export function AssistantHub({ medicines, onCommand }: AssistantHubProps) {
             </div>
 
             {/* Input Overlay for Chat */}
-            {mode === 'chat' && (
-              <form onSubmit={e => { e.preventDefault(); handleSend(); }} className="p-4 bg-white border-t border-gray-100 flex gap-2">
-                <input
-                  type="text"
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                  placeholder="Type your command..."
-                  className="flex-1 px-4 py-3 bg-gray-100 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm"
-                />
-                <button type="submit" className="p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-100"><Send size={20}/></button>
-              </form>
+            {(mode === 'chat' || mode === 'menu') && (
+              <div className="p-4 bg-white border-t border-gray-100 flex flex-col gap-3">
+                <form onSubmit={e => { e.preventDefault(); handleSend(); }} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={input}
+                    onChange={e => setInput(e.target.value)}
+                    placeholder={aiMode === 'quantis' ? "Ask Quantis for optimization or forecasting..." : "Ask Astra about your health & home..."}
+                    className="flex-1 px-4 py-3 bg-gray-100 border-none rounded-xl focus:ring-2 focus:ring-slate-900 text-sm transition-all placeholder:text-slate-400"
+                  />
+                  <button 
+                    type="submit" 
+                    disabled={!input.trim() || isLoading}
+                    className={`p-3 text-white rounded-xl transition-all disabled:opacity-50 ${aiMode === 'astra' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-slate-800 hover:bg-black'}`}
+                  >
+                    <Send size={20}/>
+                  </button>
+                </form>
+                {mode !== 'menu' && (
+                  <div className="flex justify-center">
+                    <button onClick={() => setMode('menu')} className="text-[10px] font-bold text-slate-400 hover:text-slate-900 uppercase tracking-widest flex items-center gap-1">
+                      <X size={10} /> Exit to Menu
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </motion.div>
         )}

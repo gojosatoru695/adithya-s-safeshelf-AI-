@@ -11,6 +11,7 @@ import {
   Timestamp 
 } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase.ts';
+import type { Category, Medicine } from '../types.ts';
 
 export const OperationType = {
   CREATE: 'create',
@@ -49,27 +50,6 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   }
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
-}
-
-import { Category } from './categorizationService.ts';
-
-export interface Medicine {
-  id?: string;
-  name: string;
-  type: Category;
-  dosage: string;
-  expiryDate: Date | Timestamp;
-  quantity: number;
-  price?: number;
-  unit: string;
-  usagePerDay: number;
-  lastRefilledAt?: Date | Timestamp;
-  status: 'active' | 'expiring' | 'expired' | 'low-stock';
-  riskScore: number;
-  confidence: number;
-  userId: string;
-  createdAt: any;
-  updatedAt: any;
 }
 
 const MEDICINES_COLLECTION = 'medicines';

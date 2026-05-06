@@ -67,8 +67,8 @@ export const QuantisAnalytics = ({ medicines }: QuantisAnalyticsProps) => {
             <PieChartIcon size={18} className="text-indigo-500" /> Category Distribution
           </h3>
         </div>
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+        <div className="h-64 min-h-[256px]">
+          <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
                 data={pieData}
@@ -104,8 +104,8 @@ export const QuantisAnalytics = ({ medicines }: QuantisAnalyticsProps) => {
             <Calendar size={18} className="text-blue-500" /> Expiry Vulnerability (6M)
           </h3>
         </div>
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+        <div className="h-64 min-h-[256px]">
+          <ResponsiveContainer width="100%" height="100%">
             <BarChart data={monthlyExpiry}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
               <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 600 }} />
@@ -135,8 +135,8 @@ export const QuantisAnalytics = ({ medicines }: QuantisAnalyticsProps) => {
             Managed by Quantis
           </div>
         </div>
-        <div className="h-80">
-          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+        <div className="h-80 min-h-[320px]">
+          <ResponsiveContainer width="100%" height="100%">
             <LineChart data={stockData}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
               <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 600 }} />
@@ -164,8 +164,8 @@ export const QuantisAnalytics = ({ medicines }: QuantisAnalyticsProps) => {
             <TrendingUp size={18} className="text-emerald-400" /> Projected Monthly Savings
           </h3>
         </div>
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+        <div className="h-64 min-h-[256px]">
+          <ResponsiveContainer width="100%" height="100%">
             <LineChart data={savingsData}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
               <XAxis dataKey="name" stroke="rgba(255,255,255,0.4)" axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />

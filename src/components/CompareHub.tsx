@@ -39,31 +39,37 @@ export const CompareHub = ({ aiMode = 'astra' }: { aiMode?: 'astra' | 'quantis' 
   const [comparison, setComparison] = useState<ProductComparison | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [reliability, setReliability] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const isQuantis = aiMode === 'quantis';
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSearch = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!search.trim()) return;
 
     setIsLoading(true);
+    setError(null);
     try {
       const [marketData, reviewData] = await Promise.all([
         geminiService.getMarketComparison(search),
         geminiService.getReviewSummary(search)
       ]);
       
-      if (marketData) {
+      if (marketData && marketData.deals) {
         setComparison({
           name: marketData.productName,
           deals: marketData.deals
         });
+      } else {
+        setError("Market analysis is currently unavailable. The AI service may be at capacity.");
       }
+
       if (reviewData) {
         setReliability(reviewData);
       }
-    } catch (error) {
-      console.error("Search failed:", error);
+    } catch (err: any) {
+      console.error("Search failed:", err);
+      setError("AI Engine is currently over capacity. Please try again in a few moments.");
     } finally {
       setIsLoading(false);
     }
@@ -93,21 +99,15 @@ export const CompareHub = ({ aiMode = 'astra' }: { aiMode?: 'astra' | 'quantis' 
   };
 
   const sortedDeals = useMemo(() => {
-    if (!comparison) return [];
+    if (!comparison || !comparison.deals) return [];
     return [...comparison.deals].sort((a, b) => a.price - b.price);
   }, [comparison]);
 
   // Initial load
   useEffect(() => {
-    if (!comparison && !isLoading) {
+    if (!comparison && !isLoading && !error) {
       setSearch('Dolo 650mg');
-      geminiService.getMarketComparison('Dolo 650mg')
-        .then(data => {
-          if (data) setComparison({ name: data.productName, deals: data.deals });
-        })
-        .catch(err => {
-          console.error("Initial search failed:", err);
-        });
+      handleSearch();
     }
   }, []);
 
@@ -138,6 +138,15 @@ export const CompareHub = ({ aiMode = 'astra' }: { aiMode?: 'astra' | 'quantis' 
               </div>
             )}
           </form>
+          {error && (
+            <motion.p 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-4 text-amber-400 text-xs font-bold flex items-center gap-2"
+            >
+              <Info size={14} /> {error}
+            </motion.p>
+          )}
         </div>
       </div>
 

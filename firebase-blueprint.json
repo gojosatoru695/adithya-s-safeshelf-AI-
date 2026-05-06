@@ -14,7 +14,18 @@
         "status": { "type": "string", "enum": ["active", "expiring", "expired", "low-stock"] },
         "userId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
-        "updatedAt": { "type": "string", "format": "date-time" }
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "storageNotes": { "type": "string" },
+        "timingSlots": { "type": "array", "items": { "type": "string", "enum": ["Morning", "Afternoon", "Evening", "Night"] } },
+        "exactTimes": { "type": "array", "items": { "type": "string" } },
+        "mealRelation": { "type": "string", "enum": ["Before Food", "After Food", "Empty Stomach", "None"] },
+        "startDate": { "type": "string", "format": "date-time" },
+        "endDate": { "type": "string", "format": "date-time" },
+        "repeatPattern": { "type": "string", "enum": ["Daily", "Specific Days", "Custom"] },
+        "selectedDays": { "type": "array", "items": { "type": "integer" } },
+        "reminderEnabled": { "type": "boolean" },
+        "prescribedBy": { "type": "string" },
+        "notes": { "type": "string" }
       },
       "required": ["name", "expiryDate", "userId", "createdAt"]
     },
@@ -32,9 +43,32 @@
         "preferredLanguage": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "lastLogin": { "type": "string", "format": "date-time" },
-        "onboardingCompleted": { "type": "boolean" }
+        "onboardingCompleted": { "type": "boolean" },
+        "reminderTimes": {
+          "type": "object",
+          "properties": {
+            "Morning": { "type": "string" },
+            "Afternoon": { "type": "string" },
+            "Evening": { "type": "string" },
+            "Night": { "type": "string" }
+          }
+        }
       },
       "required": ["uid", "fullName", "email", "role", "provider", "preferredLanguage", "onboardingCompleted"]
+    },
+    "DoseLog": {
+      "title": "DoseLog",
+      "description": "History of medicine doses",
+      "type": "object",
+      "properties": {
+        "medicineId": { "type": "string" },
+        "medicineName": { "type": "string" },
+        "userId": { "type": "string" },
+        "status": { "type": "string", "enum": ["taken", "skipped", "missed"] },
+        "scheduledTime": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["medicineId", "medicineName", "userId", "status", "scheduledTime", "timestamp"]
     }
   },
   "firestore": {
@@ -45,6 +79,10 @@
     "users/{userId}": {
       "schema": "UserProfile",
       "description": "User profile data"
+    },
+    "dose_logs/{logId}": {
+      "schema": "DoseLog",
+      "description": "Medicine intake history"
     }
   }
 }

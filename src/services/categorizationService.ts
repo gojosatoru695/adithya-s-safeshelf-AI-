@@ -18,7 +18,17 @@ const CATEGORY_KEYWORDS: Record<Category, string[]> = {
   ],
   Chemical: [
     'cleaner', 'bleach', 'detergent', 'acid', 'alkali', 'toxic', 'corrosive',
-    'flammable', 'solvent', 'alcohol', 'disinfectant', 'pesticide', 'fertilizer'
+    'flammable', 'solvent', 'alcohol', 'disinfectant', 'pesticide'
+  ],
+  Fertilizer: [
+    'fertilizer', 'n-p-k', 'plant food', 'soil', 'compost', 'urea', 'phosphate', 'potash'
+  ],
+  'Personal Care': [
+    'shampoo', 'hair oil', 'soap', 'body wash', 'deodorant', 'toothpaste', 'face wash',
+    'lotion', 'moisturizer', 'sunscreen', 'makeup', 'perfume', 'brush', 'comb'
+  ],
+  Household: [
+    'bulb', 'battery', 'tissue', 'towel', 'cleaner', 'garbage bag', 'tool', 'hardware'
   ],
   Other: []
 };
@@ -35,11 +45,14 @@ const getAI = () => {
 export const classifyItem = async (name: string, description: string = ''): Promise<Category> => {
   const combined = (name + ' ' + description).toLowerCase();
   
+  const categories: Category[] = ['Medicine', 'Supplement', 'Food', 'Chemical', 'Fertilizer', 'Personal Care', 'Household', 'Other'];
+
   // 1. Keyword Check (Fast)
-  for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+  for (const category of categories) {
     if (category === 'Other') continue;
-    if (keywords.some(kw => combined.includes(kw))) {
-      return category as Category;
+    const keywords = CATEGORY_KEYWORDS[category];
+    if (keywords && keywords.some(kw => combined.includes(kw))) {
+      return category;
     }
   }
   
@@ -50,7 +63,7 @@ export const classifyItem = async (name: string, description: string = ''): Prom
       const response = await client.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: `Classify this household item: "${name} ${description}". 
-        Respond with exactly one word from these categories: Medicine, Food, Supplement, Chemical, Other.`,
+        Respond with exactly one label from these categories: ${categories.join(', ')}.`,
         config: {
           responseMimeType: "text/plain"
         }
@@ -58,7 +71,7 @@ export const classifyItem = async (name: string, description: string = ''): Prom
       
       const category = response.text?.trim() as Category;
       
-      if (['Medicine', 'Food', 'Supplement', 'Chemical', 'Other'].includes(category)) {
+      if (categories.includes(category)) {
         return category;
       }
     } catch (e) {

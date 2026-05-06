@@ -19,35 +19,72 @@ service cloud.firestore {
     }
 
     function isValidUserProfile(data) {
-      return data.keys().hasAll(['uid', 'fullName', 'email', 'role', 'provider', 'preferredLanguage', 'onboardingCompleted']) &&
-             data.uid == request.auth.uid &&
+      return data.uid == request.auth.uid &&
              data.email == request.auth.token.email &&
-             data.fullName is string && data.fullName.size() > 0 && data.fullName.size() <= 100 &&
-             data.role in ['Household User', 'Student', 'Elderly User', 'Caregiver', 'Pharmacy Staff', 'Retail Seller', 'Admin'] &&
-             data.provider in ['google', 'apple', 'facebook', 'email'] &&
-             data.preferredLanguage in ['English', 'Hindi', 'Telugu', 'Kannada'] &&
-             data.onboardingCompleted is bool &&
-             (data.keys().hasAny(['createdAt']) ? data.createdAt == request.time : true) &&
-             (data.keys().hasAny(['lastLogin']) ? data.lastLogin == request.time : true);
+             (data.keys().hasAny(['fullName']) ? (data.fullName is string && data.fullName.size() > 0 && data.fullName.size() <= 100) : true) &&
+             (data.keys().hasAny(['role']) ? (data.role in ['Household User', 'Student', 'Elderly User', 'Caregiver', 'Pharmacy Staff', 'Retail Seller', 'Admin']) : true) &&
+             (data.keys().hasAny(['provider']) ? (data.provider in ['google', 'apple', 'facebook', 'email']) : true) &&
+             (data.keys().hasAny(['preferredLanguage']) ? (data.preferredLanguage in ['English', 'Hindi', 'Telugu', 'Kannada']) : true) &&
+             (data.keys().hasAny(['onboardingCompleted']) ? (data.onboardingCompleted is bool) : true) &&
+             (data.keys().hasAny(['mobileNumber']) ? (data.mobileNumber is string && data.mobileNumber.size() <= 20) : true);
     }
 
     function isValidMedicine(data) {
-      return data.keys().hasAll(['name', 'expiryDate', 'userId', 'createdAt', 'updatedAt', 'quantity', 'unit', 'status', 'dosage']) &&
-             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+      return (data.keys().hasAny(['name']) ? (data.name is string && data.name.size() > 0 && data.name.size() <= 200) : true) &&
+             (data.keys().hasAny(['userId']) ? (data.userId == request.auth.uid) : true) &&
+             (data.keys().hasAny(['type']) ? (data.type in ['Medicine', 'Food', 'Supplement', 'Chemical', 'Fertilizer', 'Personal Care', 'Household', 'Other']) : true) &&
+             (data.keys().hasAny(['quantity']) ? (data.quantity is number) : true) &&
+             (data.keys().hasAny(['totalQuantity']) ? (data.totalQuantity is number) : true) &&
+             (data.keys().hasAny(['purchasePrice']) ? (data.purchasePrice is number) : true) &&
+             (data.keys().hasAny(['estimatedValue']) ? (data.estimatedValue is number) : true) &&
+             (data.keys().hasAny(['unit']) ? (data.unit is string || data.unit == null) : true) &&
+             (data.keys().hasAny(['dosage']) ? (data.dosage is string || data.dosage == null) : true) &&
+             (data.keys().hasAny(['status']) ? (data.status in ['active', 'expiring', 'expired', 'low-stock', 'safe']) : true) &&
+             (data.keys().hasAny(['usagePerDay']) ? (data.usagePerDay is number) : true) &&
+             (data.keys().hasAny(['riskScore']) ? (data.riskScore is number) : true) &&
+             (data.keys().hasAny(['confidence']) ? (data.confidence is number) : true) &&
+             (data.keys().hasAny(['timingSlots']) ? (data.timingSlots is list || data.timingSlots == null) : true) &&
+             (data.keys().hasAny(['exactTimes']) ? (data.exactTimes is list || data.exactTimes == null) : true) &&
+             (data.keys().hasAny(['mealRelation']) ? (data.mealRelation in ['Before Food', 'After Food', 'Empty Stomach', 'None'] || data.mealRelation == null) : true) &&
+             (data.keys().hasAny(['repeatPattern']) ? (data.repeatPattern in ['Daily', 'Specific Days', 'Custom'] || data.repeatPattern == null) : true) &&
+             (data.keys().hasAny(['selectedDays']) ? (data.selectedDays is list || data.selectedDays == null) : true) &&
+             (data.keys().hasAny(['reminderEnabled']) ? (data.reminderEnabled is bool) : true) &&
+             (data.keys().hasAny(['brand']) ? (data.brand is string || data.brand == null) : true) &&
+             (data.keys().hasAny(['notes']) ? (data.notes is string || data.notes == null) : true) &&
+             (data.keys().hasAny(['storageNotes']) ? (data.storageNotes is string || data.storageNotes == null) : true) &&
+             (data.keys().hasAny(['prescribedBy']) ? (data.prescribedBy is string || data.prescribedBy == null) : true) &&
+             (data.keys().hasAny(['batchNumber']) ? (data.batchNumber is string || data.batchNumber == null) : true) &&
+             (data.keys().hasAny(['manufacturer']) ? (data.manufacturer is string || data.manufacturer == null) : true) &&
+             (data.keys().hasAny(['refillLink']) ? (data.refillLink is string || data.refillLink == null) : true) &&
+             (data.keys().hasAny(['voiceCustomMessage']) ? (data.voiceCustomMessage is string || data.voiceCustomMessage == null) : true) &&
+             (data.keys().hasAny(['voiceAlarmType']) ? (data.voiceAlarmType in ['default', 'custom'] || data.voiceAlarmType == null) : true) &&
+             (data.keys().hasAny(['voiceLanguage']) ? (data.voiceLanguage in ['English', 'Hindi', 'Telugu', 'Kannada'] || data.voiceLanguage == null) : true) &&
+             (data.keys().hasAny(['batchRecallAlert']) ? (data.batchRecallAlert is bool) : true) &&
+             (data.keys().hasAny(['alarmVolume']) ? (data.alarmVolume is number) : true) &&
+             (data.keys().hasAny(['alarmRepeatInterval']) ? (data.alarmRepeatInterval is number) : true) &&
+             (data.keys().hasAny(['tags']) ? (data.tags is list || data.tags == null) : true);
+    }
+
+    function isValidDoseLog(data) {
+      return data.medicineId is string &&
+             data.medicineName is string &&
+             data.status in ['taken', 'skipped', 'missed'] &&
+             data.scheduledTime is string &&
              data.userId == request.auth.uid &&
-             data.quantity is number &&
-             data.unit is string &&
-             data.dosage is string &&
-             data.status in ['active', 'expiring', 'expired', 'low-stock'] &&
-             data.expiryDate is timestamp &&
-             data.createdAt == request.time;
+             data.timestamp == request.time;
     }
 
     match /users/{userId} {
       allow get: if isOwner(userId);
-      allow create: if isOwner(userId) && isValidUserProfile(request.resource.data);
+      allow create: if isOwner(userId) && 
+                    isValidUserProfile(request.resource.data) &&
+                    request.resource.data.keys().hasAll(['uid', 'fullName', 'email', 'role', 'provider', 'preferredLanguage', 'onboardingCompleted']) &&
+                    request.resource.data.createdAt == request.time &&
+                    request.resource.data.lastLogin == request.time;
       allow update: if isOwner(userId) &&
                     isValidUserProfile(request.resource.data) &&
+                    request.resource.data.createdAt == resource.data.createdAt &&
+                    (request.resource.data.lastLogin == resource.data.lastLogin || request.resource.data.lastLogin == request.time) &&
                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fullName', 'role', 'mobileNumber', 'preferredLanguage', 'lastLogin', 'onboardingCompleted']);
     }
 
@@ -57,16 +94,32 @@ service cloud.firestore {
       
       allow create: if isSignedIn() && 
                     isValidMedicine(request.resource.data) &&
+                    request.resource.data.keys().hasAll(['name', 'type', 'expiryDate', 'userId', 'createdAt', 'updatedAt', 'quantity', 'unit', 'status', 'dosage']) &&
+                    (request.resource.data.keys().hasAny(['expiryDate']) ? (request.resource.data.expiryDate == null || request.resource.data.expiryDate is timestamp) : true) &&
+                    (request.resource.data.keys().hasAny(['courseDeadline']) ? (request.resource.data.courseDeadline == null || request.resource.data.courseDeadline is timestamp) : true) &&
+                    request.resource.data.createdAt == request.time &&
                     isValidId(medicineId);
       
       allow update: if isSignedIn() && 
                     isOwner(resource.data.userId) &&
+                    isValidMedicine(request.resource.data) &&
                     request.resource.data.userId == resource.data.userId &&
                     request.resource.data.createdAt == resource.data.createdAt &&
                     request.resource.data.updatedAt == request.time &&
-                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'dosage', 'expiryDate', 'quantity', 'unit', 'status', 'updatedAt']);
+                    (request.resource.data.keys().hasAny(['expiryDate']) ? (request.resource.data.expiryDate == null || request.resource.data.expiryDate is timestamp) : true) &&
+                    (request.resource.data.keys().hasAny(['lastRefilledAt']) ? (request.resource.data.lastRefilledAt == null || request.resource.data.lastRefilledAt is timestamp) : true) &&
+                    (request.resource.data.keys().hasAny(['courseDeadline']) ? (request.resource.data.courseDeadline == null || request.resource.data.courseDeadline is timestamp) : true) &&
+                    (request.resource.data.keys().hasAny(['startDate']) ? (request.resource.data.startDate == null || request.resource.data.startDate is timestamp) : true) &&
+                    (request.resource.data.keys().hasAny(['endDate']) ? (request.resource.data.endDate == null || request.resource.data.endDate is timestamp) : true) &&
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'brand', 'type', 'dosage', 'expiryDate', 'quantity', 'totalQuantity', 'purchasePrice', 'estimatedValue', 'unit', 'usagePerDay', 'lastRefilledAt', 'status', 'riskScore', 'confidence', 'updatedAt', 'timingSlots', 'mealRelation', 'courseDeadline', 'reminderEnabled', 'voiceAlarmType', 'voiceCustomMessage', 'voiceLanguage', 'prescribedBy', 'notes', 'storageNotes', 'exactTimes', 'startDate', 'endDate', 'repeatPattern', 'selectedDays', 'tags', 'refillLink', 'batchNumber', 'manufacturer', 'batchRecallAlert', 'alarmVolume', 'alarmRepeatInterval']);
       
       allow delete: if isSignedIn() && isOwner(resource.data.userId);
+    }
+
+    match /dose_logs/{logId} {
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidDoseLog(request.resource.data);
     }
   }
 }

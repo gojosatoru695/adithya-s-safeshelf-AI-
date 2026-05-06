@@ -1,21 +1,27 @@
 import React, { useState, useRef } from 'react';
-import { Camera, X, Loader2, CheckCircle2, AlertCircle, Upload, Sparkles } from 'lucide-react';
+import { Camera, X, Loader2, CheckCircle2, AlertCircle, Upload, Sparkles, Package } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ocrService, OCRResult } from '../services/ocrService.ts';
+import { geminiService } from '../services/geminiService.ts';
+import { inventoryService } from '../services/inventoryService.ts';
 import { classifyItem } from '../services/categorizationService.ts';
-import type { Category } from '../types.ts';
+import { PrescriptionReview } from './PrescriptionReview.tsx';
+import type { Category, ExtractedPrescriptionItem } from '../types.ts';
 import { Timestamp } from 'firebase/firestore';
 
 interface OCRScannerProps {
   onClose: () => void;
   onSave: (data: any) => Promise<void>;
   aiMode?: 'astra' | 'quantis';
+  elderlyMode?: boolean;
 }
 
-export const OCRScanner = ({ onClose, onSave, aiMode = 'astra' }: OCRScannerProps) => {
-  const [step, setStep] = useState<'upload' | 'scanning' | 'confirm'>('upload');
+export const OCRScanner = ({ onClose, onSave, aiMode = 'astra', elderlyMode = false }: OCRScannerProps) => {
+  const [scanType, setScanType] = useState<'medicine' | 'prescription' | null>(null);
+  const [step, setStep] = useState<'type-select' | 'upload' | 'scanning' | 'confirm' | 'prescription-review'>('type-select');
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [ocrData, setOcrData] = useState<OCRResult | null>(null);
+  const [prescriptionItems, setPrescriptionItems] = useState<ExtractedPrescriptionItem[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -41,21 +47,45 @@ export const OCRScanner = ({ onClose, onSave, aiMode = 'astra' }: OCRScannerProp
 
     setStep('scanning');
     try {
-      const result = await ocrService.processImage(file);
-      const autoCategory = await classifyItem(result.name);
-      
-      setOcrData(result);
-      setEditData(prev => ({
-        ...prev,
-        name: result.name,
-        expiryDate: result.expiryDate,
-        type: autoCategory
-      }));
-      setStep('confirm');
+      if (scanType === 'medicine') {
+        const result = await ocrService.processImage(file);
+        const autoCategory = await classifyItem(result.name);
+        
+        setOcrData(result);
+        setEditData(prev => ({
+          ...prev,
+          name: result.name,
+          expiryDate: result.expiryDate,
+          type: autoCategory
+        }));
+        setStep('confirm');
+      } else {
+        // Prescription Mode
+        const base64 = await new Promise<string>((resolve) => {
+          const r = new FileReader();
+          r.onload = () => resolve(r.result as string);
+          r.readAsDataURL(file);
+        });
+        const items = await geminiService.analyzePrescription(base64);
+        setPrescriptionItems(items);
+        setStep('prescription-review');
+      }
     } catch (err) {
       console.error(err);
       setStep('upload');
-      alert('OCR Failed. Please try a clearer image.');
+      alert('Analysis Failed. Please try a clearer image.');
+    }
+  };
+
+  const handleBatchSave = async (finalItems: any[]) => {
+    setIsSaving(true);
+    try {
+      await inventoryService.batchAddMedicines(finalItems);
+      onClose();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -125,6 +155,38 @@ export const OCRScanner = ({ onClose, onSave, aiMode = 'astra' }: OCRScannerProp
 
         <div className="p-8">
           <AnimatePresence mode="wait">
+            {step === 'type-select' && (
+              <motion.div 
+                key="type-select"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="grid grid-cols-1 sm:grid-cols-2 gap-6 py-6"
+              >
+                <button 
+                  onClick={() => { setScanType('medicine'); setStep('upload'); }}
+                  className="p-8 bg-blue-50 border-2 border-blue-100 rounded-[2.5rem] text-left group hover:border-blue-500 hover:bg-blue-100/50 transition-all"
+                >
+                  <div className="w-16 h-16 bg-white text-blue-600 rounded-3xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform shadow-sm">
+                    <Package size={32} />
+                  </div>
+                  <h4 className="text-xl font-bold text-slate-900 mb-2">Medicine Package</h4>
+                  <p className="text-sm text-slate-500 font-medium leading-relaxed">Scan the product label for quick identification and expiry tracking.</p>
+                </button>
+
+                <button 
+                  onClick={() => { setScanType('prescription'); setStep('upload'); }}
+                  className="p-8 bg-indigo-50 border-2 border-indigo-100 rounded-[2.5rem] text-left group hover:border-indigo-500 hover:bg-indigo-100/50 transition-all"
+                >
+                  <div className="w-16 h-16 bg-white text-indigo-600 rounded-3xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform shadow-sm">
+                    <Sparkles size={32} />
+                  </div>
+                  <h4 className="text-xl font-bold text-slate-900 mb-2">Doctor Prescription</h4>
+                  <p className="text-sm text-slate-500 font-medium leading-relaxed">Digitize multiple medicines at once with smart dosages and timings.</p>
+                </button>
+              </motion.div>
+            )}
+
             {step === 'upload' && (
               <motion.div 
                 key="upload"
@@ -199,7 +261,7 @@ export const OCRScanner = ({ onClose, onSave, aiMode = 'astra' }: OCRScannerProp
                     {aiMode === 'astra' && (
                       <div className="mt-2 p-3 bg-indigo-50 border border-indigo-100 rounded-xl">
                          <p className="text-[10px] font-bold text-indigo-600 flex items-center gap-1 mb-1 italic">
-                           <Sparkles size={10} /> Astra's Prescription Hint
+                           <Sparkles size={10} /> Elysia's Prescription Hint
                          </p>
                          <p className="text-[10px] text-indigo-500 font-medium leading-tight">
                            I've detected this might be a prescription. Would you like me to set up reminders for {editData.name}?
@@ -303,6 +365,21 @@ export const OCRScanner = ({ onClose, onSave, aiMode = 'astra' }: OCRScannerProp
                     )}
                   </button>
                 </div>
+              </motion.div>
+            )}
+
+            {step === 'prescription-review' && (
+              <motion.div 
+                key="prescription-review"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+              >
+                <PrescriptionReview 
+                  items={prescriptionItems} 
+                  onSave={handleBatchSave}
+                  onCancel={() => setStep('type-select')}
+                  elderlyMode={elderlyMode}
+                />
               </motion.div>
             )}
           </AnimatePresence>

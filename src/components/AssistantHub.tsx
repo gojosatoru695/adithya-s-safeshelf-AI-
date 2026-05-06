@@ -6,6 +6,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import { geminiService } from '../services/geminiService.ts';
+import { inventoryService } from '../services/inventoryService.ts';
 import type { Medicine } from '../types.ts';
 
 interface Message {
@@ -33,6 +34,8 @@ interface AssistantHubProps {
   setMode: (mode: Mode) => void;
   aiMode: 'astra' | 'quantis';
   setAiMode: (mode: 'astra' | 'quantis') => void;
+  language?: string;
+  onRefresh?: () => void;
 }
 
 type LanguageCode = 'en-IN' | 'hi-IN' | 'te-IN' | 'kn-IN';
@@ -49,10 +52,10 @@ const FEEDBACK_MESSAGES: Record<LanguageCode, {
   unknown: string;
   error: string;
 }> = {
-  'en-IN': { processing: 'Processing...', unknown: "I didn't catch that. Try 'Add medicine'.", error: 'Error encountered.' },
-  'hi-IN': { processing: 'प्रक्रिया हो रही है...', unknown: "समझ नहीं आया। 'दवा जोड़ें' बोलें।", error: 'त्रुटि हुई।' },
-  'te-IN': { processing: 'ప్రాసెస్ అవుతోంది...', unknown: "అర్థం కాలేదు. మళ్ళీ ప్రయత్నించండి.", error: 'లోపం సంభవించింది.' },
-  'kn-IN': { processing: 'ಸಂಸ್ಕರಿಸಲಾಗುತ್ತಿದೆ...', unknown: "ಅರ್ಥವಾಗಲಿಲ್ಲ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.", error: 'ದೋಷ ಕಂಡುಬಂದಿದೆ.' }
+  'en-IN': { processing: 'Thinking...', unknown: "I didn't catch that.", error: 'System error.' },
+  'hi-IN': { processing: 'सोच रहा हूँ...', unknown: "समझ नहीं आया।", error: 'सिстема त्रुटि।' },
+  'te-IN': { processing: 'ఆలోచిస్తున్నాను...', unknown: "అర్థం కాలేదు.", error: 'లోపం.' },
+  'kn-IN': { processing: 'ಯೋಚಿಸುತ್ತಿದ್ದೇನೆ...', unknown: "ಅರ್ಥವಾಗಲಿಲ್ಲ.", error: 'ದೋಷ.' }
 };
 
 export function AssistantHub({ 
@@ -63,17 +66,21 @@ export function AssistantHub({
   mode,
   setMode,
   aiMode,
-  setAiMode
+  setAiMode,
+  language = 'English',
+  onRefresh
 }: AssistantHubProps) {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([
-    { id: 'welcome', role: 'assistant', content: 'SafeShelf AI Hub is ready. How can I help?', timestamp: new Date() }
+    { id: 'welcome', role: 'assistant', content: 'SafeShelf Elysia is ready. How can I help?', timestamp: new Date() }
   ]);
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
-  const [currentLang, setCurrentLang] = useState<LanguageCode>('en-IN');
-  const [showLangs, setShowLangs] = useState(false);
+  const [currentLang, setCurrentLang] = useState<LanguageCode>(
+    language === 'Hindi' ? 'hi-IN' : language === 'Telugu' ? 'te-IN' : language === 'Kannada' ? 'kn-IN' : 'en-IN'
+  );
+  const [showConfirm, setShowConfirm] = useState<{ action: string, data: any } | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -91,11 +98,11 @@ export function AssistantHub({
         const cleanText = text.replace(/[#*|`\[\]\(\)]/g, '').replace(/:---/g, '').substring(0, 200);
         const utterance = new SpeechSynthesisUtterance(cleanText);
         utterance.lang = currentLang;
-        utterance.pitch = 1.1;
-        utterance.rate = 0.9;
+        utterance.pitch = 1.0;
+        utterance.rate = 1.0; // Fast for action-based Elysia
         window.speechSynthesis.speak(utterance);
       } catch (e) {
-        console.error("Assistant speech failed", e);
+        console.error("Elysia speech failed", e);
       }
     }
   }, [currentLang]);
@@ -112,19 +119,119 @@ export function AssistantHub({
 
     const recognition = new SpeechRecognition();
     recognition.lang = currentLang;
-    recognition.onstart = () => { setIsListening(true); setTranscript('Listening...'); };
-    recognition.onresult = (event: any) => {
+    recognition.onstart = () => { setIsListening(true); setTranscript('Elysia is listening...'); };
+    recognition.onresult = async (event: any) => {
       const text = event.results[0][0].transcript;
       setTranscript(text);
-      // Simple logic integration
-      if (text.toLowerCase().includes('add')) onCommand('add');
-      else if (text.toLowerCase().includes('expired')) onCommand('filter', 'expiring');
-      speak(FEEDBACK_MESSAGES[currentLang].processing);
+      if (event.results[0].isFinal) {
+        setIsListening(false);
+        await processVoiceCommand(text);
+      }
     };
     recognition.onerror = () => setIsListening(false);
     recognition.onend = () => setIsListening(false);
     recognitionRef.current = recognition;
     recognition.start();
+  };
+
+  const processVoiceCommand = async (text: string) => {
+    setIsLoading(true);
+    setTranscript(text);
+    try {
+      const result = await geminiService.processVoiceCommand(text, medicines, language);
+      if (result.confirmedRequired) {
+        setShowConfirm({ action: result.action, data: result });
+        speak(result.message);
+        setTranscript(result.message);
+      } else {
+        await executeVoiceAction(result.action, result);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const executeVoiceAction = async (action: string, result: any) => {
+    try {
+      const { entities, target } = result;
+      
+      switch (action) {
+        case 'ADD_ITEM':
+          onCommand('add', entities); 
+          break;
+        case 'DELETE_ITEM':
+          if (target || entities?.item_name) {
+            const med = medicines.find(m => m.id === target || m.name.toLowerCase().includes(entities?.item_name?.toLowerCase() || ''));
+            if (med) await inventoryService.deleteMedicine(med.id!);
+          }
+          break;
+        case 'QUERY_INVENTORY':
+        case 'SEARCH':
+          onCommand('tab', 'inventory');
+          if (entities?.item_name) onCommand('search', entities.item_name);
+          break;
+        case 'UPDATE_QUANTITY':
+          if (target || entities?.item_name) {
+             const med = medicines.find(m => m.id === target || m.name.toLowerCase().includes(entities?.item_name?.toLowerCase() || ''));
+             if (med && entities?.quantity !== undefined) {
+               await inventoryService.updateMedicine(med.id!, { quantity: entities.quantity });
+             }
+          }
+          break;
+        case 'LIST_EXPIRY':
+          onCommand('tab', 'inventory');
+          onCommand('filter', 'expiring');
+          break;
+        case 'SET_REMINDER':
+          if (entities?.item_name && entities?.time) {
+            const med = medicines.find(m => m.name.toLowerCase().includes(entities.item_name.toLowerCase()));
+            if (med) {
+              await inventoryService.updateMedicine(med.id!, { 
+                reminderEnabled: true,
+                exactTimes: [entities.time]
+              });
+            }
+          }
+          break;
+        case 'SCAN_PRESCRIPTION':
+          onCommand('action', 'SCAN');
+          break;
+        case 'SHOW_ANALYTICS':
+          onCommand('tab', 'overview');
+          break;
+        case 'SET_CUSTOM_ALARM':
+          if (entities?.item_name && entities?.message) {
+            const med = medicines.find(m => m.name.toLowerCase().includes(entities.item_name.toLowerCase()));
+            if (med) {
+              await inventoryService.updateMedicine(med.id!, { 
+                voiceAlarmType: 'custom',
+                voiceCustomMessage: entities.message 
+              });
+            }
+          }
+          break;
+        case 'LOG_DOSE':
+          const medToLog = medicines.find(m => 
+            m.id === target || 
+            (entities?.item_name && m.name.toLowerCase().includes(entities.item_name.toLowerCase()))
+          );
+          if (medToLog) {
+            await inventoryService.logDose(medToLog.id!, medToLog.name, 'taken', 'Elysia Voice Command');
+          }
+          break;
+      }
+      
+      speak(result.message);
+      setMessages(prev => [...prev, 
+        { id: Date.now().toString(), role: 'user', content: transcript, timestamp: new Date() },
+        { id: (Date.now()+1).toString(), role: 'assistant', content: result.message, timestamp: new Date() }
+      ]);
+      onRefresh?.();
+    } catch (e) {
+      console.error("Elysia Execution Error:", e);
+    }
   };
 
   // --- Chat Logic ---
@@ -138,7 +245,7 @@ export function AssistantHub({
       const response = await geminiService.chatQuery(text, medicines, aiMode);
       setMessages(prev => [...prev, { id: (Date.now()+1).toString(), role: 'assistant', content: response, timestamp: new Date() }]);
       
-      // Auto-speak Astra responses for accessibility if in Astra mode
+      // Auto-speak Elysia responses for accessibility if in Elysia mode
       if (aiMode === 'astra' && mode === 'voice') {
         speak(response);
       }
@@ -155,11 +262,11 @@ export function AssistantHub({
       if (!data) throw new Error();
       
       const content = `
-### Review Summary by Astra ✨
+### Review Summary by Elysia ✨
 #### ${name}
 **Reliability Meter: ${data.reliabilityScore}%**
 
-| Category | Astra's Insight |
+| Category | Elysia's Insight |
 | :--- | :--- |
 | **Value for Money** | ${data.summary.valueForMoney} |
 | **Quality** | ${data.summary.quality} |
@@ -200,9 +307,9 @@ export function AssistantHub({
                     {aiMode === 'quantis' ? <BarChart2 className="text-blue-200" /> : <Sparkles className="text-amber-200" />}
                   </div>
                   <div>
-                    <h3 className="font-bold tracking-tight text-lg">{aiMode === 'astra' ? 'Astra Assistant' : 'Quantis Engine'}</h3>
+                    <h3 className="font-bold tracking-tight text-lg">{aiMode === 'astra' ? 'Elysia Assistant' : 'Quantis Engine'}</h3>
                     <p className="text-[10px] opacity-70 uppercase tracking-widest font-bold">
-                      {mode === 'menu' ? 'SafeShelf System Active' : `${mode} Mode Active`}
+                      {mode === 'menu' ? 'SafeShelf Elysia Active' : `${mode} Mode Active`}
                     </p>
                   </div>
                 </div>
@@ -222,7 +329,7 @@ export function AssistantHub({
                   onClick={() => setAiMode('astra')}
                   className={`flex-1 py-2 px-3 rounded-lg text-[10px] font-bold uppercase tracking-tight transition-all flex items-center justify-center gap-2 ${aiMode === 'astra' ? 'bg-white text-blue-600 shadow-sm' : 'text-white/60 hover:text-white'}`}
                 >
-                  <Sparkles size={12} /> Astra
+                  <Sparkles size={12} /> Elysia
                 </button>
                 <button 
                   onClick={() => setAiMode('quantis')}
@@ -299,17 +406,58 @@ export function AssistantHub({
 
               {mode === 'voice' && (
                 <div className="flex flex-col items-center justify-center h-full py-10 space-y-6">
+                  <AnimatePresence>
+                    {showConfirm && (
+                      <motion.div 
+                        initial={{ opacity:0, y: 10 }}
+                        animate={{ opacity:1, y: 0 }}
+                        className="bg-white p-6 rounded-2xl shadow-xl border border-rose-100 flex flex-col gap-4 w-full"
+                      >
+                         <p className="text-sm font-bold text-slate-800">{showConfirm.data.message}</p>
+                         <div className="flex gap-2">
+                           <button 
+                            onClick={() => { executeVoiceAction(showConfirm.action, showConfirm.data); setShowConfirm(null); }}
+                            className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold"
+                           >
+                            Confirm
+                           </button>
+                           <button 
+                            onClick={() => setShowConfirm(null)}
+                            className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold"
+                           >
+                            Cancel
+                           </button>
+                         </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
                   <motion.button
-                    animate={isListening ? { scale: [1, 1.1, 1], boxShadow: "0 0 40px rgba(244,63,94,0.3)" } : {}}
+                    animate={isListening ? { scale: [1, 1.1, 1], boxShadow: "0 0 40px rgba(59,130,246,0.3)" } : {}}
                     transition={{ repeat: Infinity, duration: 2 }}
                     onClick={toggleListening}
-                    className={`w-28 h-28 rounded-full flex items-center justify-center transition-all ${isListening ? 'bg-rose-500 text-white shadow-xl' : 'bg-slate-900 text-white'}`}
+                    className={`w-28 h-28 rounded-full flex items-center justify-center transition-all ${isListening ? 'bg-blue-600 text-white shadow-xl' : 'bg-slate-900 text-white shadow-lg'}`}
                   >
-                    {isListening ? <Mic className="w-12 h-12" /> : <MicOff className="w-12 h-12" />}
+                    {isListening ? (
+                      <div className="flex gap-1 items-center h-8">
+                        {[1, 2, 3].map(i => (
+                          <motion.div
+                            key={i}
+                            animate={{ height: [8, 32, 8] }}
+                            transition={{ duration: 0.5, repeat: Infinity, delay: i * 0.1 }}
+                            className="w-1.5 bg-white rounded-full"
+                          />
+                        ))}
+                      </div>
+                    ) : ( transcript ? <Zap className="w-10 h-10" /> : <Mic className="w-10 h-10" /> )}
                   </motion.button>
                   <div className="text-center px-6">
-                    <p className="font-bold text-gray-900 text-lg">{isListening ? 'Listening...' : 'Tap Mic to Start'}</p>
-                    <p className="text-sm text-gray-500 mt-2">{transcript || 'Try saying "Add medicine" or "Check expiry"'}</p>
+                    <p className="font-bold text-gray-900 text-lg">
+                      {isListening ? 'Listening...' : isLoading ? 'Thinking...' : 'Elysia Voice AI'}
+                    </p>
+                    <p className="text-sm text-gray-500 mt-2 italic">
+                      {isListening ? 'Speak now...' : transcript || 'Try "Add Crocin"'}
+                    </p>
                   </div>
                 </div>
               )}
@@ -341,7 +489,7 @@ export function AssistantHub({
                     type="text"
                     value={input}
                     onChange={e => setInput(e.target.value)}
-                    placeholder={aiMode === 'quantis' ? "Ask Quantis for optimization or forecasting..." : "Ask Astra about your health & home..."}
+                    placeholder={aiMode === 'quantis' ? "Ask Quantis for optimization or forecasting..." : "Ask Elysia about your health & home..."}
                     className="flex-1 px-4 py-3 bg-gray-100 border-none rounded-xl focus:ring-2 focus:ring-slate-900 text-sm transition-all placeholder:text-slate-400"
                   />
                   <button 

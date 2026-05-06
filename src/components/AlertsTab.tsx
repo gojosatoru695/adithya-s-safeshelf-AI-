@@ -37,9 +37,9 @@ export const AlertsTab = ({ medicines, aiMode = 'astra' }: AlertsTabProps) => {
               <ShieldAlert size={28} />
             </div>
             <div>
-              <h2 className="text-2xl font-bold font-display text-slate-900">{isQuantis ? 'Quantis Integrity Audit' : 'Astra Safety Watch'}</h2>
+              <h2 className="text-2xl font-bold font-display text-slate-900">{isQuantis ? 'Quantis Integrity Audit' : 'Elysia Safety Watch'}</h2>
               <p className="text-sm text-slate-500 font-medium">
-                {isQuantis ? 'Precision verification of batch recall datasets and safety protocols.' : 'Astra is monitoring your medicine for safety recalls and heat alerts.'}
+                {isQuantis ? 'Precision verification of batch recall datasets and safety protocols.' : 'Elysia is monitoring your medicine for safety recalls and heat alerts.'}
               </p>
             </div>
           </div>

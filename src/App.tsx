@@ -62,13 +62,19 @@ import { AssistantHub } from './components/AssistantHub.tsx';
 import { CompareHub } from './components/CompareHub.tsx';
 import { AlertsTab } from './components/AlertsTab.tsx';
 import { QuantisAnalytics } from './components/QuantisAnalytics.tsx';
+import { ReminderMonitor } from './components/ReminderMonitor.tsx';
+import { DashboardView } from './components/DashboardView.tsx';
+import { DosageCalendar } from './components/DosageCalendar.tsx';
+import { InventoryDashboard } from './components/InventoryDashboard.tsx';
+import { VoiceCommandControl } from './components/VoiceCommandControl.tsx';
 import { classifyItem } from './services/categorizationService.ts';
 import { Timestamp } from 'firebase/firestore';
 import { userService } from './services/userService.ts';
 import { LoginPage } from './components/Auth/LoginPage.tsx';
 import { SignUpPage } from './components/Auth/SignUpPage.tsx';
 import { Onboarding } from './components/Auth/Onboarding.tsx';
-import type { Category, Medicine, UserProfile } from './types.ts';
+import { MedicineModal } from './components/MedicineModal.tsx';
+import type { Category, Medicine, UserProfile, DoseLog } from './types.ts';
 
 // --- Types ---
 type TabType = 'overview' | 'inventory' | 'history' | 'settings' | 'reports' | 'planner' | 'compare' | 'alerts' | 'assistant';
@@ -802,6 +808,8 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [medicines, setMedicines] = useState<Medicine[]>([]);
+  const [selectedMedicine, setSelectedMedicine] = useState<Medicine | null>(null);
+  const [logs, setLogs] = useState<DoseLog[]>([]);
   const [riskAnalysis, setRiskAnalysis] = useState<RiskAnalysis | null>(null);
   const [refills, setRefills] = useState<RefillSuggestion[]>([]);
   const [apiNotifications, setApiNotifications] = useState<ApiNotification[]>([]);
@@ -811,21 +819,66 @@ export default function App() {
   const [assistantMode, setAssistantMode] = useState<'menu' | 'chat' | 'voice' | 'settings'>('menu');
   const [searchQuery, setSearchQuery] = useState('');
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isManualAddOpen, setIsManualAddOpen] = useState(false);
+  const [isMedicineModalOpen, setIsMedicineModalOpen] = useState(false);
   const [inventoryFilter, setInventoryFilter] = useState<'all' | 'expiring' | 'high-risk' | 'out-of-stock'>('all');
   const [inventorySort, setInventorySort] = useState<'expiry' | 'risk' | 'quantity'>('expiry');
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [systemTime, setSystemTime] = useState(new Date());
   const [isPremium, setIsPremium] = useState(false);
 
+  const fetchMedicinesAndLogs = async () => {
+    try {
+      const data = await inventoryService.getMedicines();
+      setMedicines(data);
+      const doseLogs = await inventoryService.getDoseLogs();
+      setLogs(doseLogs);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTakeDose = async (med: Medicine, slot: string) => {
+    await inventoryService.logDose(med.id!, med.name, 'taken', slot);
+    await fetchMedicinesAndLogs();
+  };
+
   const handleVoiceCommand = (command: string, args?: any) => {
-    if (command === 'add') {
-      setIsScannerOpen(true);
-    } else if (command === 'filter') {
-      setInventoryFilter(args);
-      setActiveTab('inventory');
-    } else if (command === 'tab') {
-      setActiveTab(args as any);
+    switch (command) {
+      case 'add':
+        if (args?.item_name) {
+          // Pre-fill modal with voice entities
+          const mockMed: any = {
+            name: args.item_name,
+            quantity: args.quantity || 1,
+            unit: args.unit || 'Tablets',
+            type: args.category || 'Medicine'
+          };
+          setSelectedMedicine(mockMed);
+          setIsMedicineModalOpen(true);
+        } else {
+          setIsScannerOpen(true);
+        }
+        break;
+      case 'search':
+        setSearchQuery(args || '');
+        setActiveTab('inventory');
+        break;
+      case 'filter':
+        setInventoryFilter(args);
+        setActiveTab('inventory');
+        break;
+      case 'tab':
+        setActiveTab(args as any);
+        break;
+      case 'action':
+        if (args === 'SCAN') setIsScannerOpen(true);
+        break;
+      default:
+        console.log('Voice Command Received:', command, args);
     }
   };
 
@@ -908,6 +961,7 @@ export default function App() {
         try {
           const profile = await userService.getProfile(u.uid);
           setUserProfile(profile);
+          await fetchMedicinesAndLogs();
           // Auto-switch to dashboard if profile exists
           if (profile) setAuthMode('login'); 
         } catch (e) {
@@ -915,11 +969,25 @@ export default function App() {
         }
       } else {
         setUserProfile(null);
+        setMedicines([]);
+        setLogs([]);
       }
       setLoading(false);
     });
     return () => unsubscribe();
   }, []);
+
+  // Guard for voice search and other actions
+  useEffect(() => {
+    if (selectedMedicine && !isMedicineModalOpen) {
+      setIsMedicineModalOpen(true);
+    }
+  }, [selectedMedicine]);
+
+  const closeMedicineModal = () => {
+    setIsMedicineModalOpen(false);
+    setSelectedMedicine(null);
+  };
 
   const refreshProfile = async () => {
     if (user) {
@@ -1016,40 +1084,8 @@ export default function App() {
   }, [medicines]);
 
   // --- Astra Voice Reminders ---
-  useEffect(() => {
-    if (aiMode !== 'astra' || medicines.length === 0) return;
-
-    const speakReminder = (med: Medicine) => {
-      if ('speechSynthesis' in window) {
-        try {
-          window.speechSynthesis.cancel();
-          const text = `Time for your medication: ${med.name}. Timing: ${med.dosage}. ${med.storageNotes ? 'Instruction: ' + med.storageNotes : ''}`;
-          const utterance = new SpeechSynthesisUtterance(text);
-          utterance.lang = 'en-IN';
-          window.speechSynthesis.speak(utterance);
-        } catch (e) {
-          console.error("Speech synthesis failed", e);
-        }
-      }
-    };
-
-    // For demo purposes, we'll speak a reminder when an item is low or expiring soon, 
-    // or simulate a daily time check.
-    const checkReminders = () => {
-      const now = new Date();
-      // Logic: if current hour is 9, 14, or 21 (typical medicine times)
-      const hours = now.getHours();
-      if (hours === 9 || hours === 14 || hours === 21) {
-        // Find one item to remind about per time slot for demo
-        const med = medicines[0]; 
-        if (med) speakReminder(med);
-      }
-    };
-
-    const interval = setInterval(checkReminders, 3600000); // Check every hour
-    return () => clearInterval(interval);
-  }, [medicines, aiMode]);
-
+  // Replaced by ReminderMonitor component for better multilingual and scheduled support
+  
   const getDisplayStatus = (medicine: Medicine) => {
     // Backend returns data with seconds if it's a Timestamp-like object from Firestore
     let expiryDate: Date;
@@ -1183,6 +1219,15 @@ export default function App() {
       </nav>
 
       <main className="flex-1 max-w-[1600px] mx-auto w-full px-6 py-10">
+        {userProfile && (
+          <ReminderMonitor 
+            medicines={medicines} 
+            logs={logs}
+            language={userProfile.preferredLanguage || 'English'} 
+            onRefresh={fetchMedicinesAndLogs}
+            elderlyMode={userProfile.role === 'Elderly User'}
+          />
+        )}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             
             <div className="lg:col-span-3 space-y-6">
@@ -1270,6 +1315,12 @@ export default function App() {
                 </div>
                 <div className="flex items-center gap-3">
                   <button 
+                    onClick={() => setIsManualAddOpen(true)}
+                    className="px-6 py-3 bg-white border-2 border-slate-100 text-slate-600 rounded-2xl font-bold hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Plus size={18} /> Manual Entry
+                  </button>
+                  <button 
                     onClick={() => setIsScannerOpen(true)}
                     className="px-6 py-3 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-500/20 hover:scale-105 transition-all flex items-center justify-center gap-2"
                   >
@@ -1304,264 +1355,44 @@ export default function App() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
-                    className="grid grid-cols-1 xl:grid-cols-2 gap-8"
+                    className="space-y-10"
                   >
-                    {/* Smart Refill System */}
-                    <div className="xl:col-span-2">
-                       <RefillCenter medicines={medicines} isPremium={isPremium} aiMode={aiMode} />
-                    </div>
+                    {/* Integrated Scheduler Dashboard */}
+                    <DashboardView 
+                      medicines={medicines} 
+                      logs={logs} 
+                      onTakeDose={handleTakeDose}
+                      onOpenCalendar={() => setIsCalendarOpen(true)}
+                      elderlyMode={userProfile?.role === 'Elderly User'}
+                    />
 
-                    {aiMode === 'quantis' && (
-                      <div className="xl:col-span-2 space-y-8">
-                        <QuantisAnalytics medicines={medicines} />
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+                      {/* Smart Refill System */}
+                      <div className="xl:col-span-2">
+                        <RefillCenter medicines={medicines} isPremium={isPremium} aiMode={aiMode} />
                       </div>
-                    )}
-                    {/* Recent Inventory Widget */}
-                    <div className="dashboard-card p-8 group">
-                       <div className="flex justify-between items-center mb-8">
-                          <h3 className="font-bold text-lg text-slate-800">Recent Labels</h3>
-                          <button onClick={() => setActiveTab('inventory')} className="text-blue-600 text-xs font-bold hover:underline">View All</button>
-                       </div>
-                       <div className="space-y-4">
-                          {medicines.length > 0 ? (
-                            medicines.slice(0, 4).sort((a,b) => {
-                              const timeA = (a.updatedAt as Timestamp)?.toMillis?.() || 0;
-                              const timeB = (b.updatedAt as Timestamp)?.toMillis?.() || 0;
-                              return timeB - timeA;
-                            }).map(med => {
-                              const status = getDisplayStatus(med);
-                              return (
-                                <div key={med.id} className="flex items-center gap-4 p-4 hover:bg-slate-50 transition-colors rounded-2xl">
-                                  <div className={`w-10 h-10 rounded-xl ${status.bg} ${status.textColor} flex items-center justify-center`}>
-                                     <Package size={20} />
-                                  </div>
-                                  <div className="flex-1">
-                                    <p className="text-sm font-bold text-slate-900">{med.name}</p>
-                                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{med.dosage} • {med.quantity} unit left</p>
-                                  </div>
-                                  <div className={`px-2 py-1 rounded-full text-[8px] font-bold uppercase ${status.bg} ${status.textColor}`}>
-                                    {status.label}
-                                  </div>
-                                </div>
-                              )
-                            })
-                          ) : <LoadingSkeleton />}
-                       </div>
-                    </div>
 
-                    {/* Analytics / health Widget */}
-                    <div className="dashboard-card p-8">
-                       <div className="flex justify-between items-center mb-8">
-                          <h3 className="font-bold text-lg text-slate-800">Neural Health Index</h3>
-                          <div className={`flex items-center gap-1 font-bold text-xs ${riskAnalysis?.score && riskAnalysis.score > 80 ? 'text-emerald-500' : 'text-amber-500'}`}>
-                             <CheckCircle2 size={14} /> {riskAnalysis?.status || 'Analyzing...'}
-                          </div>
-                       </div>
-                       <div className="space-y-10">
-                          <div className="flex flex-col items-center">
-                            <div className="relative w-32 h-32 flex items-center justify-center">
-                              <svg className="w-full h-full -rotate-90">
-                                <circle 
-                                  cx="64" cy="64" r="58" 
-                                  className="stroke-slate-100 fill-none" 
-                                  strokeWidth="8"
-                                />
-                                <motion.circle 
-                                  cx="64" cy="64" r="58" 
-                                  className="stroke-blue-600 fill-none" 
-                                  strokeWidth="8"
-                                  strokeDasharray="364"
-                                  initial={{ strokeDashoffset: 364 }}
-                                  animate={{ strokeDashoffset: 364 - (364 * (riskAnalysis?.score || 0)) / 100 }}
-                                  transition={{ duration: 1, ease: "easeOut" }}
-                                />
-                              </svg>
-                              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                <span className="text-3xl font-display font-bold text-slate-900">{riskAnalysis?.score || '--'}</span>
-                                <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Score</span>
-                              </div>
-                            </div>
-                          </div>
-                          
-                          <div className="grid grid-cols-2 gap-4">
-                             <div className="p-5 bg-slate-50 rounded-[2rem]">
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Refill Suggestions</p>
-                                <p className="text-lg font-bold font-display text-slate-800">{refills.length} items</p>
-                             </div>
-                             <div className="p-5 bg-slate-50 rounded-[2rem]">
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Active Alerts</p>
-                                <p className="text-lg font-bold font-display text-slate-800 text-red-500">{riskAnalysis?.alerts.length || 0}</p>
-                             </div>
-                          </div>
-                       </div>
+                      {aiMode === 'quantis' && (
+                        <div className="xl:col-span-2">
+                          <QuantisAnalytics medicines={medicines} />
+                        </div>
+                      )}
                     </div>
                   </motion.div>
-                )}
-
-                {activeTab === 'inventory' && (
+                )}                {activeTab === 'inventory' && (
                   <motion.div 
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
                     className="space-y-6"
                   >
-                    {/* Filters & Sorting */}
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 bg-white p-6 rounded-[2rem] border border-slate-100">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {[
-                          { id: 'all', label: 'All Items' },
-                          { id: 'expiring', label: 'Expiring Soon' },
-                          { id: 'high-risk', label: 'High Risk' },
-                          { id: 'out-of-stock', label: 'Out of Stock' }
-                        ].map(f => (
-                          <button
-                            key={f.id}
-                            onClick={() => setInventoryFilter(f.id as any)}
-                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                              inventoryFilter === f.id 
-                              ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' 
-                              : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
-                            }`}
-                          >
-                            {f.label}
-                          </button>
-                        ))}
-                      </div>
-
-                      <div className="flex items-center gap-4">
-                         <div className="flex items-center gap-3">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sort</span>
-                            <select 
-                              value={inventorySort}
-                              onChange={(e) => setInventorySort(e.target.value as any)}
-                              className="bg-slate-50 border-none text-slate-600 text-xs font-bold rounded-xl px-4 py-2 focus:ring-2 focus:ring-blue-500/20"
-                            >
-                              <option value="expiry">Expiry Date</option>
-                              <option value="risk">Risk Score</option>
-                              <option value="quantity">Quantity</option>
-                            </select>
-                         </div>
-                         <button 
-                            onClick={() => setIsManualAddOpen(true)}
-                            className="px-6 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800 transition-all flex items-center gap-2"
-                         >
-                            <Plus size={14} /> Add Item
-                         </button>
-                      </div>
-                    </div>
-
-                    <AnimatePresence>
-                      {isManualAddOpen && (
-                        <ManualEntryForm 
-                          onClose={() => setIsManualAddOpen(false)} 
-                          onSave={async (data) => {
-                            await inventoryService.addMedicine(data);
-                            setIsManualAddOpen(false);
-                          }} 
-                        />
-                      )}
-                    </AnimatePresence>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                      {filteredMedicines.map(med => {
-                       const status = getDisplayStatus(med);
-                       return (
-                        <div key={med.id} className={`dashboard-card p-6 relative group transition-all ${status.pulse ? 'ring-2 ring-red-500 ring-offset-2 animate-pulse-subtle' : ''}`}>
-                           <button 
-                             onClick={() => med.id && inventoryService.deleteMedicine(med.id)}
-                             className="absolute top-4 right-4 p-2 text-slate-200 hover:text-red-500 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all focus:opacity-100"
-                           >
-                             <Trash2 size={16} />
-                           </button>
-
-                           {/* Share Actions for Critical Items */}
-                           {(status.label === 'Expired' || status.label === 'Expiring Soon') && (
-                             <div className="absolute top-4 right-14 flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                                <button 
-                                  onClick={() => {
-                                    const subject = encodeURIComponent(`Inventory Alert: ${med.name}`);
-                                    const body = encodeURIComponent(`The item "${med.name}" is currently ${status.label}. Please take action.`);
-                                    window.location.href = `mailto:?subject=${subject}&body=${body}`;
-                                  }}
-                                  className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all shadow-sm"
-                                  title="Send via Gmail"
-                                >
-                                  <Mail size={14} />
-                                </button>
-                                <button 
-                                  onClick={() => {
-                                    const text = encodeURIComponent(`*Inventory Alert*\nItem: ${med.name}\nStatus: ${status.label}\nPlease check the tracker: ${window.location.host}`);
-                                    window.open(`https://wa.me/?text=${text}`, '_blank');
-                                  }}
-                                  className="p-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-600 hover:text-white transition-all shadow-sm"
-                                  title="Send via WhatsApp"
-                                >
-                                  <MessageCircle size={14} />
-                                </button>
-                             </div>
-                           )}
-
-                           <div className={`w-12 h-12 rounded-2xl ${status.bg} ${status.textColor} flex items-center justify-center mb-6`}>
-                              <Package size={24} />
-                           </div>
-
-                           <div className="flex items-center justify-between mb-6">
-                              <div>
-                                <h4 className="text-xl font-bold text-slate-900 mb-1">{med.name}</h4>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-[8px] font-bold text-slate-400 border border-slate-100 px-1.5 py-0.5 rounded uppercase tracking-widest">{med.type}</span>
-                                  <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">{med.dosage}</p>
-                                </div>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Risk Score</p>
-                                <p className={`text-lg font-display font-bold ${(med.riskScore || 0) > 70 ? 'text-red-500' : (med.riskScore || 0) > 30 ? 'text-amber-500' : 'text-emerald-500'}`}>
-                                  {med.riskScore || 0}
-                                </p>
-                              </div>
-                           </div>
-
-                           <div className="flex items-center gap-3 py-4 border-y border-slate-50 mb-6">
-                              <Calendar size={14} className="text-slate-300" />
-                              <div className="flex-1">
-                                 <p className="text-[8px] font-bold text-slate-300 uppercase tracking-widest leading-none mb-1">Expiry</p>
-                                 <p className="text-xs font-bold text-slate-600">
-                                   {(() => {
-                                      let d: Date;
-                                      if (med.expiryDate && (med.expiryDate as any).seconds) {
-                                        d = new Date((med.expiryDate as any).seconds * 1000);
-                                      } else if (med.expiryDate) {
-                                        d = new Date(med.expiryDate as unknown as string);
-                                      } else {
-                                        return 'No date set';
-                                      }
-                                      return d.toLocaleDateString();
-                                   })()}
-                                 </p>
-                              </div>
-                              <div className="text-right">
-                                 <p className="text-[8px] font-bold text-slate-300 uppercase tracking-widest leading-none mb-1">Confidence</p>
-                                 <p className="text-xs font-bold text-slate-600">{med.confidence || 0}%</p>
-                              </div>
-                              <div className={`px-3 py-1 rounded-full text-[8px] font-bold uppercase tracking-widest ${status.bg} ${status.textColor}`}>
-                                 {status.label}
-                              </div>
-                           </div>
-
-                           <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                              <span>Stock Level</span>
-                              <span className="text-slate-900">{med.quantity} {med.unit}</span>
-                           </div>
-                           <div className="mt-2 h-1.5 w-full bg-slate-50 rounded-full overflow-hidden">
-                              <div 
-                                className={`h-full bg-blue-500 transition-all`} 
-                                style={{ width: `${Math.min(100, (med.quantity / 50) * 100)}%` }} 
-                              />
-                           </div>
-                        </div>
-                      )
-                    })}
-                    </div>
+                    <InventoryDashboard 
+                      items={medicines}
+                      onRefresh={fetchMedicinesAndLogs}
+                      onEdit={(item) => setSelectedMedicine(item)}
+                      onScan={() => setIsScannerOpen(true)}
+                      elderlyMode={userProfile?.role === 'Elderly User'}
+                    />
                   </motion.div>
                 )}
 
@@ -1630,6 +1461,8 @@ export default function App() {
           setMode={setAssistantMode}
           aiMode={aiMode}
           setAiMode={setAiMode}
+          language={userProfile?.preferredLanguage || 'English'}
+          onRefresh={fetchMedicinesAndLogs}
         />
       )}
 
@@ -1643,8 +1476,56 @@ export default function App() {
               setIsScannerOpen(false);
             }}
             aiMode={aiMode}
+            elderlyMode={userProfile?.role === 'Elderly User'}
           />
         )}
+        {isCalendarOpen && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center px-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsCalendarOpen(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-slate-50 rounded-[3rem] shadow-3xl p-8"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h3 className="text-2xl font-black text-slate-900">Health Ledger</h3>
+                  <p className="text-sm font-bold text-slate-400">1-Week Progress Snapshot</p>
+                </div>
+                <button 
+                  onClick={() => setIsCalendarOpen(false)}
+                  className="w-12 h-12 bg-white text-slate-400 hover:text-slate-900 rounded-2xl flex items-center justify-center shadow-sm transition-all"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+              <DosageCalendar medicines={medicines} logs={logs} />
+              
+              <div className="mt-8 p-6 bg-blue-600 rounded-3xl text-white">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center">
+                    <Sparkles size={24} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold">Elysia Insight</p>
+                    <p className="text-xs opacity-80 leading-relaxed">
+                      Maintaining a 90% or higher adherence score significantly reduces your health risks. 
+                      You're doing great this week!
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {isNotificationsOpen && (
           <>
             <motion.div 
@@ -1700,6 +1581,16 @@ export default function App() {
           </>
         )}
       </AnimatePresence>
+
+      {userProfile && (
+        <MedicineModal
+          isOpen={isMedicineModalOpen || isManualAddOpen}
+          onClose={() => { closeMedicineModal(); setIsManualAddOpen(false); }}
+          onSave={fetchMedicinesAndLogs}
+          medicine={selectedMedicine}
+          language={userProfile.preferredLanguage || 'English'}
+        />
+      )}
 
       <footer className="py-8 bg-[#f6f9fc] border-t border-[#e6ebf1]">
          <div className="max-w-[1600px] mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">

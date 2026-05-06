@@ -1,7 +1,21 @@
-export type Category = 'Medicine' | 'Food' | 'Supplement' | 'Chemical' | 'Other';
+export type Category = 'Medicine' | 'Supplement' | 'Food' | 'Chemical' | 'Fertilizer' | 'Personal Care' | 'Household' | 'Other';
 export type AuthRole = 'Household User' | 'Student' | 'Elderly User' | 'Caregiver' | 'Pharmacy Staff' | 'Retail Seller' | 'Admin';
 export type Language = 'English' | 'Hindi' | 'Telugu' | 'Kannada';
 export type AuthProviderType = 'google' | 'apple' | 'facebook' | 'email';
+export type TimingSlot = 'Morning' | 'Afternoon' | 'Evening' | 'Night';
+export type MealRelation = 'Before Food' | 'After Food' | 'Empty Stomach' | 'None';
+export type RepeatPattern = 'Daily' | 'Specific Days' | 'Custom';
+
+export interface DoseLog {
+  id: string;
+  medicineId: string;
+  medicineName: string;
+  userId: string;
+  status: 'taken' | 'skipped' | 'missed';
+  scheduledTime: any;
+  actualTime?: any;
+  timestamp: any;
+}
 
 export interface UserProfile {
   uid: string;
@@ -14,27 +28,64 @@ export interface UserProfile {
   createdAt: any;
   lastLogin: any;
   onboardingCompleted: boolean;
+  reminderTimes?: {
+    Morning: string;
+    Afternoon: string;
+    Evening: string;
+    Night: string;
+  };
 }
 
 export interface Medicine {
   id?: string;
+  userId: string;
   name: string;
+  brand?: string;
   type: Category;
   dosage: string;
-  expiryDate: Date | any; // Using any for Timestamp to avoid firebase import on server
+  expiryDate: Date | any;
   quantity: number;
-  price?: number;
+  totalQuantity?: number;
+  purchasePrice?: number;
+  estimatedValue?: number;
   unit: string;
   usagePerDay: number;
   lastRefilledAt?: Date | any;
-  status: 'active' | 'expiring' | 'expired' | 'low-stock';
+  status: 'active' | 'expiring' | 'expired' | 'low-stock' | 'safe';
   riskScore: number;
   confidence: number;
-  userId: string;
   createdAt: any;
   updatedAt: any;
   batchNumber?: string;
   manufacturer?: string;
   batchRecallAlert?: boolean;
   storageNotes?: string;
+  
+  // Smart Prescription Features
+  timingSlots?: TimingSlot[];
+  exactTimes?: string[]; // e.g., ["09:00", "21:00"]
+  mealRelation?: MealRelation;
+  startDate?: any;
+  endDate?: any;
+  repeatPattern?: RepeatPattern;
+  selectedDays?: number[]; // [0-6] for Sun-Sat
+  reminderEnabled?: boolean;
+  voiceAlarmType?: 'default' | 'custom';
+  voiceCustomMessage?: string;
+  voiceLanguage?: Language;
+  alarmVolume?: number;
+  alarmRepeatInterval?: number;
+  prescribedBy?: string;
+  notes?: string;
+  tags?: string[];
+  refillLink?: string;
+}
+
+export interface ExtractedPrescriptionItem {
+  name: string;
+  dosage?: string;
+  timings: TimingSlot[];
+  meal: MealRelation;
+  duration?: string;
+  notes?: string;
 }

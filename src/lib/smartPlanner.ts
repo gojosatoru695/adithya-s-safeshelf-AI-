@@ -31,7 +31,7 @@ export function calculateSmartRefillScores(medicines: Medicine[], monthlyBudget:
 
     // 3. Affordability Score (20% weight)
     // Higher if the price is a small fraction of the budget.
-    const itemPrice = item.price || 0;
+    const itemPrice = item.estimatedValue || item.purchasePrice || 0;
     const affordabilityScore = monthlyBudget > 0 
       ? Math.max(0, Math.min(100, (1 - (itemPrice / monthlyBudget)) * 100))
       : 50;

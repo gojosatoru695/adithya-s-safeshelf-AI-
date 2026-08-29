@@ -1,10 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   MessageSquare, X, Send, Bot, User, Loader2, Sparkles, AlertCircle, 
-  ShoppingCart, BarChart2, Mic, MicOff, Globe, Settings2, Zap
+  ShoppingCart, BarChart2, Mic, MicOff, Globe, Settings2, Zap,
+  Download, ArrowRight, CheckCircle2, ShieldCheck, RefreshCw, Volume2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
+import { jsPDF } from 'jspdf';
 import { geminiService } from '../services/geminiService.ts';
 import { inventoryService } from '../services/inventoryService.ts';
 import type { Medicine } from '../types.ts';
@@ -14,6 +16,7 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  suggestions?: string[];
 }
 
 declare global {
@@ -40,23 +43,12 @@ interface AssistantHubProps {
 
 type LanguageCode = 'en-IN' | 'hi-IN' | 'te-IN' | 'kn-IN';
 
-const LANGUAGES: { code: LanguageCode, label: string, native: string }[] = [
+const LANGUAGES: { code: LanguageCode; label: string; native: string }[] = [
   { code: 'en-IN', label: 'English', native: 'English' },
   { code: 'hi-IN', label: 'Hindi', native: 'हिन्दी' },
   { code: 'te-IN', label: 'Telugu', native: 'తెలుగు' },
   { code: 'kn-IN', label: 'Kannada', native: 'ಕನ್ನಡ' }
 ];
-
-const FEEDBACK_MESSAGES: Record<LanguageCode, {
-  processing: string;
-  unknown: string;
-  error: string;
-}> = {
-  'en-IN': { processing: 'Thinking...', unknown: "I didn't catch that.", error: 'System error.' },
-  'hi-IN': { processing: 'सोच रहा हूँ...', unknown: "समझ नहीं आया।", error: 'सिстема त्रुटि।' },
-  'te-IN': { processing: 'ఆలోచిస్తున్నాను...', unknown: "అర్థం కాలేదు.", error: 'లోపం.' },
-  'kn-IN': { processing: 'ಯೋಚಿಸುತ್ತಿದ್ದೇನೆ...', unknown: "ಅರ್ಥವಾಗಲಿಲ್ಲ.", error: 'ದೋಷ.' }
-};
 
 export function AssistantHub({ 
   medicines, 
@@ -72,7 +64,18 @@ export function AssistantHub({
 }: AssistantHubProps) {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([
-    { id: 'welcome', role: 'assistant', content: 'SafeShelf Elysia is ready. How can I help?', timestamp: new Date() }
+    { 
+      id: 'welcome', 
+      role: 'assistant', 
+      content: `### 🌟 Welcome to SafeShelf AI\n\nI am your **${aiMode === 'astra' ? 'Astra Clinical Care Guardian' : 'Quantis Mathematical Optimizer'}**, actively connected to your **${medicines.length} vault medications**.\n\nAsk me about **drug-food interactions**, **30-day replenishment forecasts**, **cheaper generic equivalents**, or speak to me directly in English, Hindi, Telugu, or Kannada.`, 
+      timestamp: new Date(),
+      suggestions: [
+        '🚨 Run full safety & interaction check',
+        '📉 Forecast 30-day medication budget',
+        '🥗 Which meds require food?',
+        '💊 Find generic equivalents for my cabinet'
+      ]
+    }
   ]);
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -80,36 +83,41 @@ export function AssistantHub({
   const [currentLang, setCurrentLang] = useState<LanguageCode>(
     language === 'Hindi' ? 'hi-IN' : language === 'Telugu' ? 'te-IN' : language === 'Kannada' ? 'kn-IN' : 'en-IN'
   );
-  const [showConfirm, setShowConfirm] = useState<{ action: string, data: any } | null>(null);
+  const [showConfirm, setShowConfirm] = useState<{ action: string; data: any } | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
 
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
 
-  useEffect(() => { if (mode === 'chat') scrollToBottom(); }, [messages, mode]);
+  useEffect(() => { 
+    if (mode === 'chat') scrollToBottom(); 
+  }, [messages, mode]);
 
-  // --- Voice Logic ---
+  // Voice speech synthesis
   const speak = useCallback((text: string) => {
     if ('speechSynthesis' in window) {
       try {
         window.speechSynthesis.cancel();
-        // Clean markdown for speech
-        const cleanText = text.replace(/[#*|`\[\]\(\)]/g, '').replace(/:---/g, '').substring(0, 200);
+        const cleanText = text.replace(/[#*|`\[\]\(\)]/g, '').replace(/:---/g, '').substring(0, 240);
         const utterance = new SpeechSynthesisUtterance(cleanText);
         utterance.lang = currentLang;
         utterance.pitch = 1.0;
-        utterance.rate = 1.0; // Fast for action-based Elysia
+        utterance.rate = 1.05;
         window.speechSynthesis.speak(utterance);
       } catch (e) {
-        console.error("Elysia speech failed", e);
+        console.error("Speech synthesis failed", e);
       }
     }
   }, [currentLang]);
 
+  // Voice recognition toggle
   const toggleListening = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
+    if (!SpeechRecognition) {
+      alert("Speech recognition is not supported in this browser. Please use Google Chrome or Edge.");
+      return;
+    }
 
     if (isListening) {
       recognitionRef.current?.stop();
@@ -119,7 +127,14 @@ export function AssistantHub({
 
     const recognition = new SpeechRecognition();
     recognition.lang = currentLang;
-    recognition.onstart = () => { setIsListening(true); setTranscript('Elysia is listening...'); };
+    recognition.continuous = false;
+    recognition.interimResults = true;
+
+    recognition.onstart = () => { 
+      setIsListening(true); 
+      setTranscript('Listening for command...'); 
+    };
+
     recognition.onresult = async (event: any) => {
       const text = event.results[0][0].transcript;
       setTranscript(text);
@@ -128,6 +143,7 @@ export function AssistantHub({
         await processVoiceCommand(text);
       }
     };
+
     recognition.onerror = () => setIsListening(false);
     recognition.onend = () => setIsListening(false);
     recognitionRef.current = recognition;
@@ -147,7 +163,7 @@ export function AssistantHub({
         await executeVoiceAction(result.action, result);
       }
     } catch (e) {
-      console.error(e);
+      console.error('Voice processing error:', e);
     } finally {
       setIsLoading(false);
     }
@@ -171,6 +187,9 @@ export function AssistantHub({
         case 'SEARCH':
           onCommand('tab', 'inventory');
           if (entities?.item_name) onCommand('search', entities.item_name);
+          break;
+        case 'COMPARE_PRICE':
+          onCommand('tab', 'compare');
           break;
         case 'UPDATE_QUANTITY':
           if (target || entities?.item_name) {
@@ -201,279 +220,365 @@ export function AssistantHub({
         case 'SHOW_ANALYTICS':
           onCommand('tab', 'overview');
           break;
-        case 'SET_CUSTOM_ALARM':
-          if (entities?.item_name && entities?.message) {
-            const med = medicines.find(m => m.name.toLowerCase().includes(entities.item_name.toLowerCase()));
-            if (med) {
-              await inventoryService.updateMedicine(med.id!, { 
-                voiceAlarmType: 'custom',
-                voiceCustomMessage: entities.message 
-              });
-            }
-          }
-          break;
         case 'LOG_DOSE':
           const medToLog = medicines.find(m => 
             m.id === target || 
             (entities?.item_name && m.name.toLowerCase().includes(entities.item_name.toLowerCase()))
-          );
+          ) || medicines[0];
           if (medToLog) {
-            await inventoryService.logDose(medToLog.id!, medToLog.name, 'taken', 'Elysia Voice Command');
+            await inventoryService.logDose(medToLog.id!, medToLog.name, 'taken', 'SafeShelf Voice Agent');
           }
           break;
       }
       
       speak(result.message);
-      setMessages(prev => [...prev, 
+      setMessages(prev => [
+        ...prev, 
         { id: Date.now().toString(), role: 'user', content: transcript, timestamp: new Date() },
-        { id: (Date.now()+1).toString(), role: 'assistant', content: result.message, timestamp: new Date() }
+        { id: (Date.now() + 1).toString(), role: 'assistant', content: result.message, timestamp: new Date() }
       ]);
       onRefresh?.();
     } catch (e) {
-      console.error("Elysia Execution Error:", e);
+      console.error("Voice execution failure:", e);
     }
   };
 
-  // --- Chat Logic ---
+  // Main Chat Handler
   const handleSend = async (text: string = input) => {
     if (!text.trim() || isLoading) return;
     const userMsg: Message = { id: Date.now().toString(), role: 'user', content: text, timestamp: new Date() };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setIsLoading(true);
-    try {
-      const response = await geminiService.chatQuery(text, medicines, aiMode);
-      setMessages(prev => [...prev, { id: (Date.now()+1).toString(), role: 'assistant', content: response, timestamp: new Date() }]);
-      
-      // Auto-speak Elysia responses for accessibility if in Elysia mode
-      if (aiMode === 'astra' && mode === 'voice') {
-        speak(response);
-      }
-    } catch {
-      setMessages(prev => [...prev, { id: 'err', role: 'assistant', content: 'AI Service error.', timestamp: new Date() }]);
-    } finally { setIsLoading(false); }
-  };
-
-  const handleReviewSummary = async (name: string) => {
-    setIsLoading(true);
     setMode('chat');
-    try {
-      const data = await geminiService.getReviewSummary(name);
-      if (!data) throw new Error();
-      
-      const content = `
-### Review Summary by Elysia ✨
-#### ${name}
-**Reliability Meter: ${data.reliabilityScore}%**
 
-| Category | Elysia's Insight |
-| :--- | :--- |
-| **Value for Money** | ${data.summary.valueForMoney} |
-| **Quality** | ${data.summary.quality} |
-| **Packaging** | ${data.summary.packaging} |
-| **Delivery** | ${data.summary.delivery} |
-| **Trust** | ${data.summary.trust} |
-| **Taste** | ${data.summary.taste} |
-| **User Satisfaction** | ${data.summary.userSatisfaction} |
-      `;
-      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', content, timestamp: new Date() }]);
+    try {
+      const historyContext = messages.slice(-4).map(m => ({ role: m.role, content: m.content }));
+      const response = await geminiService.chatQuery(text, medicines, aiMode, historyContext, language);
+      
+      setMessages(prev => [
+        ...prev, 
+        { 
+          id: (Date.now() + 1).toString(), 
+          role: 'assistant', 
+          content: response.content, 
+          suggestions: response.suggestions,
+          timestamp: new Date() 
+        }
+      ]);
     } catch {
-      setMessages(prev => [...prev, { id: 'err', role: 'assistant', content: 'Failed to fetch review summary.', timestamp: new Date() }]);
-    } finally { setIsLoading(false); }
+      setMessages(prev => [
+        ...prev, 
+        { id: 'err', role: 'assistant', content: 'AI Service error. Please retry in a moment.', timestamp: new Date() }
+      ]);
+    } finally { 
+      setIsLoading(false); 
+    }
   };
 
-  const menuOptions = [
-    { id: 'voice', label: 'Voice Assistant', icon: <Mic className="w-6 h-6" />, color: 'bg-rose-500', desc: 'Control via speech' },
-    { id: 'chat', label: 'AI Chat', icon: <MessageSquare className="w-6 h-6" />, color: 'bg-indigo-600', desc: 'Natural conversations' },
-    { id: 'summary', label: 'Inventory Summary', icon: <BarChart2 className="w-6 h-6" />, color: 'bg-amber-500', desc: 'Instant status update' },
-    { id: 'settings', label: 'AI Settings', icon: <Settings2 className="w-6 h-6" />, color: 'bg-slate-600', desc: 'Languages & Config' }
-  ];
+  // Export consultation to PDF
+  const handleExportPDF = () => {
+    const doc = new jsPDF();
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
+    doc.setTextColor(30, 41, 59);
+    doc.text('SafeShelf AI: Clinical & Medication Audit Log', 14, 20);
+    
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Generated: ${new Date().toLocaleString()} | Engine: ${aiMode.toUpperCase()}`, 14, 28);
+    doc.text(`Connected Vault: ${medicines.length} Monitored Items`, 14, 34);
+    
+    let y = 45;
+    doc.setDrawColor(226, 232, 240);
+    doc.line(14, 38, 196, 38);
+
+    messages.forEach((msg, index) => {
+      if (y > 260) {
+        doc.addPage();
+        y = 20;
+      }
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(msg.role === 'user' ? 37 : 14, msg.role === 'user' ? 99 : 116, msg.role === 'user' ? 235 : 144);
+      doc.text(`${msg.role === 'user' ? 'User Question' : 'SafeShelf AI Analysis'} (${msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`, 14, y);
+      y += 6;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(51, 65, 85);
+      
+      const cleanContent = msg.content.replace(/[#*|`\[\]]/g, '').replace(/:---/g, '');
+      const lines = doc.splitTextToSize(cleanContent, 180);
+      doc.text(lines, 14, y);
+      y += lines.length * 5 + 8;
+    });
+
+    doc.save(`SafeShelf_Consultation_${Date.now()}.pdf`);
+  };
 
   return (
     <div className="fixed bottom-6 right-6 z-[200]">
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            initial={{ opacity: 0, scale: 0.92, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: 20 }}
-            className="absolute bottom-20 right-0 w-[420px] max-w-[calc(100vw-2rem)] min-h-[500px] max-h-[calc(100vh-8rem)] bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden flex flex-col"
+            exit={{ opacity: 0, scale: 0.92, y: 20 }}
+            className="absolute bottom-20 right-0 w-[450px] max-w-[calc(100vw-2rem)] min-h-[580px] max-h-[calc(100vh-7rem)] bg-white rounded-[2.5rem] shadow-2xl border border-slate-100 overflow-hidden flex flex-col z-[210]"
           >
             {/* Header */}
-            <div className={`p-5 text-white flex flex-col transition-colors ${aiMode === 'astra' ? 'bg-blue-600' : 'bg-slate-900'}`}>
+            <div className={`p-6 text-white flex flex-col transition-colors ${aiMode === 'astra' ? 'bg-gradient-to-r from-blue-700 to-indigo-800' : 'bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950'}`}>
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-white/10 flex items-center justify-center backdrop-blur-md">
-                    {aiMode === 'quantis' ? <BarChart2 className="text-blue-200" /> : <Sparkles className="text-amber-200" />}
+                  <div className="w-11 h-11 rounded-2xl bg-white/10 flex items-center justify-center backdrop-blur-md border border-white/10 shadow-inner">
+                    {aiMode === 'quantis' ? <Zap className="text-amber-300" size={22} /> : <Sparkles className="text-blue-200" size={22} />}
                   </div>
                   <div>
-                    <h3 className="font-bold tracking-tight text-lg">{aiMode === 'astra' ? 'Elysia Assistant' : 'Quantis Engine'}</h3>
-                    <p className="text-[10px] opacity-70 uppercase tracking-widest font-bold">
-                      {mode === 'menu' ? 'SafeShelf Elysia Active' : `${mode} Mode Active`}
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-bold tracking-tight text-lg">
+                        {aiMode === 'astra' ? 'Astra Clinical Guardian' : 'Quantis Optimizer'}
+                      </h3>
+                      <span className="px-2 py-0.5 rounded-full bg-white/20 text-[9px] font-black uppercase tracking-wider">
+                        v3.7 AI
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-white/70 font-medium flex items-center gap-1.5 mt-0.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                      RAG Live Sync: {medicines.length} Vault Items
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {mode !== 'menu' && (
-                    <button onClick={() => setMode('menu')} className="text-xs font-bold hover:bg-white/10 px-3 py-1 rounded-lg transition-colors">Back</button>
+
+                <div className="flex items-center gap-1.5">
+                  {messages.length > 2 && (
+                    <button
+                      onClick={handleExportPDF}
+                      title="Export Chat to PDF"
+                      className="p-2 hover:bg-white/10 rounded-xl text-white/80 hover:text-white transition-all cursor-pointer"
+                    >
+                      <Download size={18} />
+                    </button>
                   )}
-                  <button onClick={() => setIsOpen(false)} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors cursor-pointer">
-                    <X className="w-5 h-5" />
+                  <button 
+                    onClick={() => setIsOpen(false)} 
+                    className="p-2 hover:bg-white/10 rounded-xl text-white/80 hover:text-white transition-colors cursor-pointer"
+                  >
+                    <X size={20} />
                   </button>
                 </div>
               </div>
 
-              {/* Mode Toggle */}
-              <div className="flex bg-black/20 rounded-xl p-1 gap-1">
+              {/* Mode Toggle Bar */}
+              <div className="flex bg-black/30 backdrop-blur-md rounded-2xl p-1 gap-1 border border-white/10">
                 <button 
                   onClick={() => setAiMode('astra')}
-                  className={`flex-1 py-2 px-3 rounded-lg text-[10px] font-bold uppercase tracking-tight transition-all flex items-center justify-center gap-2 ${aiMode === 'astra' ? 'bg-white text-blue-600 shadow-sm' : 'text-white/60 hover:text-white'}`}
+                  className={`flex-1 py-2 px-3 rounded-xl text-xs font-black uppercase tracking-tight transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                    aiMode === 'astra' 
+                      ? 'bg-white text-blue-800 shadow-md scale-100' 
+                      : 'text-white/70 hover:text-white hover:bg-white/5'
+                  }`}
                 >
-                  <Sparkles size={12} /> Elysia
+                  <Sparkles size={13} /> Astra (Clinical Care)
                 </button>
                 <button 
                   onClick={() => setAiMode('quantis')}
-                  className={`flex-1 py-2 px-3 rounded-lg text-[10px] font-bold uppercase tracking-tight transition-all flex items-center justify-center gap-2 ${aiMode === 'quantis' ? 'bg-white text-slate-900 shadow-sm' : 'text-white/60 hover:text-white'}`}
+                  className={`flex-1 py-2 px-3 rounded-xl text-xs font-black uppercase tracking-tight transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                    aiMode === 'quantis' 
+                      ? 'bg-white text-slate-900 shadow-md scale-100' 
+                      : 'text-white/70 hover:text-white hover:bg-white/5'
+                  }`}
                 >
-                  <Zap size={12} /> Quantis
+                  <Zap size={13} /> Quantis (Optimization)
                 </button>
               </div>
             </div>
 
-            {/* Container for Content */}
-            <div className="flex-1 overflow-y-auto p-4 bg-gray-50/50">
+            {/* Content Container */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5 bg-slate-50/70 space-y-4">
               {mode === 'menu' && (
                 <div className="space-y-4">
-                   {medicines.length > 0 && (
-                     <div className="p-4 bg-blue-50 border border-blue-100 rounded-2xl">
-                       <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-3">Recent Items (Review Summaries)</p>
-                       <div className="flex flex-wrap gap-2">
-                         {medicines.slice(0, 3).map(m => (
-                           <button 
-                            key={m.id}
-                            onClick={() => handleReviewSummary(m.name)}
-                            className="bg-white px-3 py-1.5 rounded-lg text-[10px] font-bold text-slate-700 border border-blue-100 hover:border-blue-300 transition-all shadow-sm"
-                           >
-                            {m.name} Review
-                           </button>
-                         ))}
-                       </div>
-                     </div>
-                   )}
+                  {/* Action Cards Grid */}
+                  <div className="grid grid-cols-1 gap-2.5">
+                    <button
+                      onClick={() => setMode('chat')}
+                      className="p-4 bg-white rounded-2xl border border-slate-100 hover:border-blue-200 shadow-sm hover:shadow-md transition-all text-left flex items-center justify-between group cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3.5">
+                        <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                          <MessageSquare size={20} />
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-900 text-sm">Interactive AI Consultation</p>
+                          <p className="text-xs text-slate-400">Ask questions with live medication context</p>
+                        </div>
+                      </div>
+                      <ArrowRight size={16} className="text-slate-300 group-hover:text-blue-600 transition-colors" />
+                    </button>
 
-                  <div className="grid grid-cols-1 gap-3">
-                    {menuOptions.map((opt) => (
-                      <motion.button
-                        whileHover={{ x: 5 }}
-                        onClick={() => {
-                          if (opt.id === 'summary') handleSend('Generate a summary of my current inventory.');
-                          setMode(opt.id as any);
-                        }}
-                        key={opt.id}
-                        className="flex items-center gap-4 p-4 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all group cursor-pointer"
-                      >
-                        <div className={`w-12 h-12 ${opt.color} text-white rounded-xl flex items-center justify-center transition-transform group-hover:scale-110 shadow-lg`}>
-                          {opt.icon}
+                    <button
+                      onClick={() => setMode('voice')}
+                      className="p-4 bg-white rounded-2xl border border-slate-100 hover:border-rose-200 shadow-sm hover:shadow-md transition-all text-left flex items-center justify-between group cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3.5">
+                        <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                          <Mic size={20} />
                         </div>
-                        <div className="text-left">
-                          <p className="font-bold text-gray-900">{opt.label}</p>
-                          <p className="text-xs text-gray-500 font-medium">{opt.desc}</p>
+                        <div>
+                          <p className="font-bold text-slate-900 text-sm">Multilingual Voice Agent</p>
+                          <p className="text-xs text-slate-400">Speak commands in English, Hindi, Telugu, or Kannada</p>
                         </div>
-                      </motion.button>
-                    ))}
+                      </div>
+                      <ArrowRight size={16} className="text-slate-300 group-hover:text-rose-600 transition-colors" />
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        onCommand('tab', 'compare');
+                        setIsOpen(false);
+                      }}
+                      className="p-4 bg-white rounded-2xl border border-slate-100 hover:border-indigo-200 shadow-sm hover:shadow-md transition-all text-left flex items-center justify-between group cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3.5">
+                        <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                          <ShoppingCart size={20} />
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-900 text-sm">Multi-Store Price Compare Hub</p>
+                          <p className="text-xs text-slate-400">Compare Blinkit, Tata 1mg, PharmEasy & Netmeds</p>
+                        </div>
+                      </div>
+                      <ArrowRight size={16} className="text-slate-300 group-hover:text-indigo-600 transition-colors" />
+                    </button>
+                  </div>
+
+                  {/* Preset Recommended Prompts */}
+                  <div className="pt-2">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1 mb-2.5">
+                      Suggested Instant Analyses
+                    </p>
+                    <div className="space-y-2">
+                      {[
+                        '🚨 Run comprehensive drug interaction & safety audit',
+                        '📉 Forecast 30-day medication budget & stockout dates',
+                        '🥗 Which of my medications require strict meal timing?',
+                        '💊 Find cheaper generic formulations for my vault'
+                      ].map((prompt, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => handleSend(prompt)}
+                          className="w-full p-3 bg-white hover:bg-blue-50/70 border border-slate-100 hover:border-blue-200 rounded-xl text-left text-xs font-semibold text-slate-700 transition-all flex items-center justify-between group cursor-pointer"
+                        >
+                          <span className="truncate">{prompt}</span>
+                          <ArrowRight size={14} className="text-slate-300 group-hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-all shrink-0 ml-2" />
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )}
 
               {mode === 'chat' && (
-                <div className="space-y-4 pb-4">
+                <div className="space-y-4 pb-2">
                   {messages.map((msg) => (
-                    <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[90%] p-4 rounded-2xl text-sm ${msg.role === 'user' ? 'bg-slate-900 text-white rounded-tr-none' : 'bg-white shadow-sm border border-gray-100 rounded-tl-none'}`}>
-                        <div className="prose prose-sm prose-slate max-w-none">
+                    <div 
+                      key={msg.id} 
+                      className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
+                    >
+                      <div 
+                        className={`max-w-[92%] p-4 rounded-3xl text-xs leading-relaxed ${
+                          msg.role === 'user' 
+                            ? 'bg-slate-900 text-white rounded-tr-none shadow-md font-medium' 
+                            : 'bg-white shadow-sm border border-slate-200/80 text-slate-800 rounded-tl-none'
+                        }`}
+                      >
+                        <div className="prose prose-xs max-w-none text-slate-800 leading-relaxed font-sans">
                           <ReactMarkdown>{msg.content}</ReactMarkdown>
                         </div>
                       </div>
+
+                      {/* Suggestions list from AI */}
+                      {msg.suggestions && msg.suggestions.length > 0 && (
+                        <div className="mt-2.5 flex flex-wrap gap-1.5 max-w-[92%]">
+                          {msg.suggestions.map((sug, i) => (
+                            <button
+                              key={i}
+                              onClick={() => handleSend(sug)}
+                              className="px-3 py-1.5 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 text-slate-700 rounded-xl text-[11px] font-bold transition-all shadow-2xs text-left cursor-pointer"
+                            >
+                              {sug}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
-                  {isLoading && <div className="flex items-center gap-2 text-xs text-blue-600 animate-pulse font-bold p-2">
-                    <Loader2 size={14} className="animate-spin" />
-                    SafeShelf AI is computing...
-                  </div>}
+
+                  {isLoading && (
+                    <div className="flex items-center gap-2.5 text-xs text-blue-700 font-bold p-3 bg-blue-50/80 rounded-2xl border border-blue-100 w-fit animate-pulse">
+                      <Loader2 size={16} className="animate-spin text-blue-600" />
+                      SafeShelf AI is generating clinical & supply insights...
+                    </div>
+                  )}
                   <div ref={messagesEndRef} />
                 </div>
               )}
 
               {mode === 'voice' && (
-                <div className="flex flex-col items-center justify-center h-full py-10 space-y-6">
-                  <AnimatePresence>
-                    {showConfirm && (
-                      <motion.div 
-                        initial={{ opacity:0, y: 10 }}
-                        animate={{ opacity:1, y: 0 }}
-                        className="bg-white p-6 rounded-2xl shadow-xl border border-rose-100 flex flex-col gap-4 w-full"
-                      >
-                         <p className="text-sm font-bold text-slate-800">{showConfirm.data.message}</p>
-                         <div className="flex gap-2">
-                           <button 
-                            onClick={() => { executeVoiceAction(showConfirm.action, showConfirm.data); setShowConfirm(null); }}
-                            className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold"
-                           >
-                            Confirm
-                           </button>
-                           <button 
-                            onClick={() => setShowConfirm(null)}
-                            className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold"
-                           >
-                            Cancel
-                           </button>
-                         </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                <div className="flex flex-col items-center justify-center py-8 space-y-6">
+                  <div className="relative">
+                    <motion.button
+                      animate={isListening ? { scale: [1, 1.08, 1], boxShadow: "0 0 50px rgba(37, 99, 235, 0.4)" } : {}}
+                      transition={{ repeat: Infinity, duration: 1.5 }}
+                      onClick={toggleListening}
+                      className={`w-28 h-28 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                        isListening 
+                          ? 'bg-blue-600 text-white shadow-2xl' 
+                          : 'bg-slate-900 text-white shadow-xl hover:bg-black'
+                      }`}
+                    >
+                      {isListening ? (
+                        <div className="flex gap-1.5 items-center h-8">
+                          {[1, 2, 3, 4].map(i => (
+                            <motion.div
+                              key={i}
+                              animate={{ height: [8, 36, 8] }}
+                              transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.12 }}
+                              className="w-1.5 bg-white rounded-full"
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <Mic size={36} />
+                      )}
+                    </motion.button>
+                  </div>
 
-                  <motion.button
-                    animate={isListening ? { scale: [1, 1.1, 1], boxShadow: "0 0 40px rgba(59,130,246,0.3)" } : {}}
-                    transition={{ repeat: Infinity, duration: 2 }}
-                    onClick={toggleListening}
-                    className={`w-28 h-28 rounded-full flex items-center justify-center transition-all ${isListening ? 'bg-blue-600 text-white shadow-xl' : 'bg-slate-900 text-white shadow-lg'}`}
-                  >
-                    {isListening ? (
-                      <div className="flex gap-1 items-center h-8">
-                        {[1, 2, 3].map(i => (
-                          <motion.div
-                            key={i}
-                            animate={{ height: [8, 32, 8] }}
-                            transition={{ duration: 0.5, repeat: Infinity, delay: i * 0.1 }}
-                            className="w-1.5 bg-white rounded-full"
-                          />
-                        ))}
-                      </div>
-                    ) : ( transcript ? <Zap className="w-10 h-10" /> : <Mic className="w-10 h-10" /> )}
-                  </motion.button>
-                  <div className="text-center px-6">
-                    <p className="font-bold text-gray-900 text-lg">
-                      {isListening ? 'Listening...' : isLoading ? 'Thinking...' : 'Elysia Voice AI'}
+                  <div className="text-center px-4 space-y-2">
+                    <p className="font-extrabold text-slate-900 text-base">
+                      {isListening ? 'Elysia is listening...' : isLoading ? 'Analyzing intent...' : 'Tap to speak with SafeShelf Voice'}
                     </p>
-                    <p className="text-sm text-gray-500 mt-2 italic">
-                      {isListening ? 'Speak now...' : transcript || 'Try "Add Crocin"'}
+                    <p className="text-xs text-slate-400 font-medium max-w-xs">
+                      {isListening 
+                        ? 'Speak clearly in your chosen language...' 
+                        : transcript ? `"${transcript}"` : 'Try: "Add 2 boxes of Paracetamol" or "Compare price for Dolo"'}
                     </p>
                   </div>
-                </div>
-              )}
 
-              {mode === 'settings' && (
-                <div className="space-y-4">
-                  <p className="text-xs font-bold text-gray-500 uppercase tracking-widest px-1">AI Voice Language</p>
-                  <div className="grid grid-cols-1 gap-2">
+                  {/* Language Selector in Voice */}
+                  <div className="flex items-center gap-1.5 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
                     {LANGUAGES.map(lang => (
-                      <button 
+                      <button
                         key={lang.code}
                         onClick={() => setCurrentLang(lang.code)}
-                        className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${currentLang === lang.code ? 'border-indigo-600 bg-indigo-50 text-indigo-600' : 'border-gray-100 bg-white text-gray-600 hover:bg-gray-50'}`}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          currentLang === lang.code 
+                            ? 'bg-white text-blue-700 shadow-sm' 
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
                       >
-                        <span className="font-bold">{lang.native}</span>
-                        <span className="text-xs opacity-60">{lang.label}</span>
+                        {lang.native}
                       </button>
                     ))}
                   </div>
@@ -481,48 +586,86 @@ export function AssistantHub({
               )}
             </div>
 
-            {/* Input Overlay for Chat */}
-            {(mode === 'chat' || mode === 'menu') && (
-              <div className="p-4 bg-white border-t border-gray-100 flex flex-col gap-3">
-                <form onSubmit={e => { e.preventDefault(); handleSend(); }} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={input}
-                    onChange={e => setInput(e.target.value)}
-                    placeholder={aiMode === 'quantis' ? "Ask Quantis for optimization or forecasting..." : "Ask Elysia about your health & home..."}
-                    className="flex-1 px-4 py-3 bg-gray-100 border-none rounded-xl focus:ring-2 focus:ring-slate-900 text-sm transition-all placeholder:text-slate-400"
-                  />
+            {/* Input Overlay */}
+            <div className="p-4 bg-white border-t border-slate-100 flex flex-col gap-2.5">
+              <form 
+                onSubmit={e => { 
+                  e.preventDefault(); 
+                  handleSend(); 
+                }} 
+                className="flex items-center gap-2"
+              >
+                <input
+                  type="text"
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  placeholder={
+                    aiMode === 'quantis' 
+                      ? "Ask Quantis: forecast cost, compare deals, optimize refills..." 
+                      : "Ask Astra: drug interactions, meal relations, safety warnings..."
+                  }
+                  className="flex-1 px-4 py-3.5 bg-slate-100/90 border border-slate-200/80 rounded-2xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all placeholder:text-slate-400"
+                />
+                
+                <button 
+                  type="button"
+                  onClick={() => setMode('voice')}
+                  className="p-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl transition-all cursor-pointer"
+                  title="Speak Voice Command"
+                >
+                  <Mic size={18} />
+                </button>
+
+                <button 
+                  type="submit" 
+                  disabled={!input.trim() || isLoading}
+                  className={`p-3.5 text-white rounded-2xl transition-all disabled:opacity-40 cursor-pointer ${
+                    aiMode === 'astra' 
+                      ? 'bg-blue-600 hover:bg-blue-700 shadow-md shadow-blue-600/20' 
+                      : 'bg-slate-900 hover:bg-black shadow-md shadow-slate-900/20'
+                  }`}
+                >
+                  <Send size={18} />
+                </button>
+              </form>
+
+              {mode !== 'menu' && (
+                <div className="flex items-center justify-between px-1">
                   <button 
-                    type="submit" 
-                    disabled={!input.trim() || isLoading}
-                    className={`p-3 text-white rounded-xl transition-all disabled:opacity-50 ${aiMode === 'astra' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-slate-800 hover:bg-black'}`}
+                    onClick={() => setMode('menu')} 
+                    className="text-[10px] font-black text-slate-400 hover:text-slate-800 uppercase tracking-widest transition-colors cursor-pointer"
                   >
-                    <Send size={20}/>
+                    ← Main Menu
                   </button>
-                </form>
-                {mode !== 'menu' && (
-                  <div className="flex justify-center">
-                    <button onClick={() => setMode('menu')} className="text-[10px] font-bold text-slate-400 hover:text-slate-900 uppercase tracking-widest flex items-center gap-1">
-                      <X size={10} /> Exit to Menu
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
+                  <span className="text-[10px] text-slate-400 font-medium">
+                    Language: {LANGUAGES.find(l => l.code === currentLang)?.label}
+                  </span>
+                </div>
+              )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
 
+      {/* Floating Launcher Button */}
       <motion.button
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         onClick={() => setIsOpen(!isOpen)}
-        className="w-16 h-16 bg-slate-900 text-white rounded-2xl shadow-2xl flex items-center justify-center relative group cursor-pointer hover:bg-black transition-all"
+        className={`w-16 h-16 rounded-[1.75rem] shadow-2xl flex items-center justify-center relative group cursor-pointer transition-all ${
+          aiMode === 'astra' ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/30' : 'bg-slate-900 hover:bg-black text-white shadow-slate-900/30'
+        }`}
       >
         <AnimatePresence mode="wait">
-          {isOpen ? <X key="x" className="w-8 h-8" /> : <Bot key="bot" className="w-8 h-8" />}
+          {isOpen ? (
+            <X key="x" size={28} />
+          ) : (
+            <div className="relative">
+              <Bot key="bot" size={28} />
+              <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-400 rounded-full border-2 border-slate-900 animate-pulse" />
+            </div>
+          )}
         </AnimatePresence>
-        {!isOpen && <div className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-500 rounded-full border-2 border-white animate-pulse" />}
       </motion.button>
     </div>
   );

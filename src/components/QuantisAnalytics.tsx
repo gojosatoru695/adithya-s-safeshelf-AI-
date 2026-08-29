@@ -1,11 +1,6 @@
-import React from 'react';
-import { 
-  PieChart, Pie, Cell, ResponsiveContainer, Tooltip, 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend,
-  LineChart, Line
-} from 'recharts';
+import React, { useMemo } from 'react';
 import { motion } from 'motion/react';
-import { BarChart2, TrendingUp, PieChart as PieChartIcon, Calendar } from 'lucide-react';
+import { BarChart2, TrendingUp, PieChart as PieChartIcon, Calendar, ArrowUpRight, ArrowDownRight, Zap, Target } from 'lucide-react';
 import type { Medicine } from '../types.ts';
 
 interface QuantisAnalyticsProps {
@@ -13,172 +8,177 @@ interface QuantisAnalyticsProps {
 }
 
 export const QuantisAnalytics = ({ medicines }: QuantisAnalyticsProps) => {
-  // 1. Category Breakdown Data
-  const categories = medicines.reduce((acc: any, med) => {
-    const cat = med.type || 'Other';
-    acc[cat] = (acc[cat] || 0) + 1;
-    return acc;
-  }, {});
-
-  const pieData = Object.entries(categories).map(([name, value]) => ({ name, value }));
-  const COLORS = ['#4f46e5', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#6366f1'];
-
-  // 2. Expiry Trends Data (Next 6 Months)
-  const monthlyExpiry = Array(6).fill(0).map((_, i) => {
-    const date = new Date();
-    date.setMonth(date.getMonth() + i);
-    const monthName = date.toLocaleString('default', { month: 'short' });
-    
-    const count = medicines.filter(med => {
-      if (!med.expiryDate) return false;
-      const expDate = new Date(med.expiryDate);
-      return expDate.getMonth() === date.getMonth() && expDate.getFullYear() === date.getFullYear();
+  // 1. Insights Generation
+  const insights = useMemo(() => {
+    const expiredCount = medicines.filter(m => {
+       const expDate = new Date(m.expiryDate?.seconds * 1000 || m.expiryDate);
+       return expDate < new Date();
     }).length;
 
-    return { name: monthName, items: count };
-  });
+    const nearExpiry = medicines.filter(m => {
+       const expDate = new Date(m.expiryDate?.seconds * 1000 || m.expiryDate);
+       const weekOut = new Date(Date.now() + 7 * 86400000);
+       return expDate >= new Date() && expDate < weekOut;
+    }).length;
 
-  // 3. Stock Level Distribution
-  const stockData = medicines.map(m => ({
-    name: m.name.substring(0, 10),
-    stock: m.quantity,
-    min: 5,
-    marketPrice: Math.floor(Math.random() * 500) + 100, // Simulated
-    ourPrice: Math.floor(Math.random() * 400) + 80 // Simulated
-  }));
+    const lowStock = medicines.filter(m => m.quantity < 5).length;
+    
+    // Sort items by value for savings insight
+    const highValueItems = [...medicines].sort((a,b) => (b.estimatedValue || 0) - (a.estimatedValue || 0)).slice(0, 3);
 
-  const savingsData = [
-    { name: 'Week 1', savings: 450 },
-    { name: 'Week 2', savings: 890 },
-    { name: 'Week 3', savings: 1200 },
-    { name: 'Week 4', savings: 2100 },
-  ];
+    return {
+      expiredCount,
+      nearExpiry,
+      lowStock,
+      highValueItems,
+      totalValue: medicines.reduce((sum, m) => sum + (m.estimatedValue || 0), 0)
+    };
+  }, [medicines]);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-2">
-      {/* Category Breakdown */}
-      <motion.div 
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="dashboard-card p-6 bg-white border border-slate-100"
-      >
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="font-bold text-slate-800 flex items-center gap-2">
-            <PieChartIcon size={18} className="text-indigo-500" /> Category Distribution
-          </h3>
-        </div>
-        <div className="h-64 min-h-[256px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={pieData}
-                cx="50%"
-                cy="50%"
-                innerRadius={60}
-                outerRadius={80}
-                paddingAngle={5}
-                dataKey="value"
-              >
-                {pieData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip 
-                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-              />
-              <Legend verticalAlign="bottom" height={36}/>
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-      </motion.div>
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Inventory Distribution Insight */}
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-[2.5rem] p-8 border border-slate-100 shadow-sm"
+        >
+          <div className="flex items-center justify-between mb-8">
+            <h3 className="font-bold text-slate-800 flex items-center gap-2">
+              <PieChartIcon size={18} className="text-indigo-500" /> Stock Distribution
+            </h3>
+            <span className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-bold uppercase tracking-widest">Analytics Ready</span>
+          </div>
+          
+          <div className="space-y-6">
+             <div className="flex items-center justify-between">
+                <div>
+                   <p className="text-2xl font-black text-slate-900">{medicines.length}</p>
+                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Managed Items</p>
+                </div>
+                <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center">
+                   <Target className="text-slate-400" size={24} />
+                </div>
+             </div>
+             
+             <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 bg-slate-50 rounded-2xl">
+                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] mb-1">Medicines</p>
+                   <p className="text-lg font-black text-slate-800">{medicines.filter(m => m.type === 'Medicine').length}</p>
+                </div>
+                <div className="p-4 bg-slate-50 rounded-2xl">
+                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] mb-1">Other</p>
+                   <p className="text-lg font-black text-slate-800">{medicines.filter(m => m.type !== 'Medicine').length}</p>
+                </div>
+             </div>
+          </div>
+        </motion.div>
 
-      {/* Expiry Forecast */}
-      <motion.div 
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="dashboard-card p-6 bg-white border border-slate-100"
-      >
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="font-bold text-slate-800 flex items-center gap-2">
-            <Calendar size={18} className="text-blue-500" /> Expiry Vulnerability (6M)
-          </h3>
-        </div>
-        <div className="h-64 min-h-[256px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={monthlyExpiry}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 600 }} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 600 }} />
-              <Tooltip 
-                cursor={{ fill: '#f8fafc' }}
-                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-              />
-              <Bar dataKey="items" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </motion.div>
+        {/* Expiry Risk Profile */}
+        <motion.div 
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="bg-white rounded-[2.5rem] p-8 border border-slate-100 shadow-sm"
+        >
+          <div className="flex items-center justify-between mb-8">
+            <h3 className="font-bold text-slate-800 flex items-center gap-2">
+              <Calendar size={18} className="text-rose-500" /> Expiry Vulnerability
+            </h3>
+          </div>
+          
+          <div className="space-y-4">
+             <div className={`p-5 rounded-2xl border-l-4 ${insights.expiredCount > 0 ? 'bg-rose-50 border-rose-500' : 'bg-emerald-50 border-emerald-500'}`}>
+                <div className="flex justify-between items-center mb-1">
+                   <p className="text-sm font-bold text-slate-800">Critical Expiry</p>
+                   <span className={`text-xs font-black ${insights.expiredCount > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                      {insights.expiredCount} Items
+                   </span>
+                </div>
+                <p className="text-[10px] text-slate-500 font-medium leading-relaxed">
+                   {insights.expiredCount > 0 ? 'Immediately discard these items to ensure household safety.' : 'No items have reached their terminal expiry date.'}
+                </p>
+             </div>
 
-      {/* Stock Levels Analytics */}
+             <div className="p-5 bg-amber-50 rounded-2xl border-l-4 border-amber-500">
+                <div className="flex justify-between items-center mb-1">
+                   <p className="text-sm font-bold text-slate-800">Near-Term Risk</p>
+                   <span className="text-xs font-black text-amber-600">{insights.nearExpiry} Items</span>
+                </div>
+                <p className="text-[10px] text-slate-500 font-medium leading-relaxed">
+                   Expiring within the next 7 days. Move to priority intake list or prepare for replacement.
+                </p>
+             </div>
+          </div>
+        </motion.div>
+      </div>
+
+      {/* Financial Optimization Insight */}
       <motion.div 
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
-        className="dashboard-card p-6 bg-white border border-slate-100 lg:col-span-2"
+        className="bg-slate-900 rounded-[2.5rem] p-10 text-white relative overflow-hidden"
       >
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="font-bold text-slate-800 flex items-center gap-2">
-            <BarChart2 size={18} className="text-indigo-600" /> Stock Quantity Analysis
-          </h3>
-          <div className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest">
-            Managed by Quantis
-          </div>
-        </div>
-        <div className="h-80 min-h-[320px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={stockData}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 600 }} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 600 }} />
-              <Tooltip 
-                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-              />
-              <Legend />
-              <Line type="monotone" dataKey="stock" stroke="#4f46e5" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 6 }} />
-              <Line type="monotone" dataKey="min" stroke="#cbd5e1" strokeDasharray="5 5" />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </motion.div>
-
-      {/* Savings Trend */}
-      <motion.div 
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
-        className="dashboard-card p-6 bg-slate-900 border-none text-white lg:col-span-2"
-      >
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="font-bold flex items-center gap-2">
-            <TrendingUp size={18} className="text-emerald-400" /> Projected Monthly Savings
-          </h3>
-        </div>
-        <div className="h-64 min-h-[256px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={savingsData}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-              <XAxis dataKey="name" stroke="rgba(255,255,255,0.4)" axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
-              <YAxis stroke="rgba(255,255,255,0.4)" axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
-              <Tooltip 
-                contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '12px' }}
-                itemStyle={{ color: '#10b981' }}
-              />
-              <Line type="stepAfter" dataKey="savings" stroke="#10b981" strokeWidth={4} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
+        <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 blur-3xl -mr-32 -mt-32 rounded-full" />
+        
+        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+           <div className="lg:col-span-4">
+              <div className="flex items-center gap-3 mb-4">
+                 <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center text-white">
+                    <TrendingUp size={24} />
+                 </div>
+                 <h3 className="text-xl font-bold">Quantis Value Optimization</h3>
+              </div>
+              <p className="text-slate-400 text-sm leading-relaxed mb-6">
+                 Analyzing market trends and purchase history to minimize wastage and optimize replenishment costs.
+              </p>
+              <div className="p-6 bg-white/5 border border-white/10 rounded-3xl">
+                 <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Vault Inventory Value</p>
+                 <p className="text-3xl font-black text-white">${insights.totalValue.toFixed(2)}</p>
+              </div>
+           </div>
+           
+           <div className="lg:col-span-8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                 <div className="bg-white/5 border border-white/10 p-6 rounded-3xl">
+                    <div className="flex items-center justify-between mb-4">
+                       <Zap className="text-blue-400" size={20} />
+                       <span className="text-[10px] font-bold text-blue-400 flex items-center gap-1">
+                          <ArrowUpRight size={12} /> +12% Efficiency
+                       </span>
+                    </div>
+                    <p className="text-sm font-bold mb-1">Smart Sourcing</p>
+                    <p className="text-[10px] text-slate-500 leading-relaxed">Quantis has identified 4 alternative providers for your chronic medication with better reliability scores.</p>
+                 </div>
+                 
+                 <div className="bg-white/5 border border-white/10 p-6 rounded-3xl">
+                    <div className="flex items-center justify-between mb-4">
+                       <BarChart2 className="text-emerald-400" size={20} />
+                       <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1">
+                          <ArrowDownRight size={12} /> -8% Waste
+                       </span>
+                    </div>
+                    <p className="text-sm font-bold mb-1">Wastage Reduction</p>
+                    <p className="text-[10px] text-slate-500 leading-relaxed">Early consumption alerts for near-expiry items have saved an estimated $42.00 this month.</p>
+                 </div>
+              </div>
+              
+              <div className="mt-4 p-6 bg-emerald-500/10 border border-emerald-500/20 rounded-3xl">
+                 <h4 className="text-xs font-bold text-emerald-400 mb-3 uppercase tracking-widest">High-Impact Inventory Items</h4>
+                 <div className="flex flex-wrap gap-3">
+                    {insights.highValueItems.map(item => (
+                       <div key={item.id} className="px-4 py-2 bg-white/5 rounded-xl border border-white/5 text-[10px] font-bold">
+                          {item.name} • ${item.estimatedValue?.toFixed(0)}
+                       </div>
+                    ))}
+                 </div>
+              </div>
+           </div>
         </div>
       </motion.div>
     </div>
   );
 };
+

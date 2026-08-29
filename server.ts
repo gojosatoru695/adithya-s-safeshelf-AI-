@@ -11,6 +11,7 @@ import PDFDocument from 'pdfkit';
 import cron from 'node-cron';
 import { User, Item, Report, connectDb } from './src/lib/db.ts';
 import { calculateSmartRefillScores } from './src/lib/smartPlanner.ts';
+import { aiRouter } from './src/server/aiRouter.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,6 +22,9 @@ const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
 
 app.use(cors());
 app.use(express.json());
+
+// Mount AI Router
+app.use('/api/ai', aiRouter);
 
 // Auth Middleware
 interface AuthRequest extends Request {
@@ -83,8 +87,68 @@ app.post('/api/login', async (req, res) => {
 app.get('/api/me', authenticateToken, async (req: AuthRequest, res) => {
   try {
     await connectDb();
-    const user = await (User as any).findById(req.user?.id).select('id name email plan report_interval');
+    const user = await (User as any).findById(req.user?.id).select('-password');
     res.json(user);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/profile', authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    const { name, phone, role, profile_picture, preferred_language } = req.body;
+    await connectDb();
+    const user = await (User as any).findByIdAndUpdate(
+      req.user?.id,
+      { name, phone, role, profile_picture, preferred_language },
+      { new: true }
+    ).select('-password');
+    res.json(user);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/settings', authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    const { settings } = req.body;
+    await connectDb();
+    const user = await (User as any).findByIdAndUpdate(
+      req.user?.id,
+      { settings },
+      { new: true }
+    ).select('-password');
+    res.json(user);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/auth/firebase', async (req, res) => {
+  try {
+    const { uid, email, name } = req.body || {};
+    const safeUid = uid || 'guest_' + Date.now();
+    const safeEmail = email || `${safeUid}@safeshelf.local`;
+    const safeName = name || safeEmail.split('@')[0] || 'User';
+
+    await connectDb();
+    
+    // Find or create user based on email (or uid if we added a field for it)
+    let user = await (User as any).findOne({ email: safeEmail });
+    
+    if (!user) {
+      // Create a dummy password for MongoDB users who only use Firebase
+      const dummyPassword = await bcrypt.hash(safeUid + JWT_SECRET, 10);
+      user = new User({ 
+        name: safeName, 
+        email: safeEmail, 
+        password: dummyPassword 
+      });
+      await user.save();
+    }
+
+    const token = jwt.sign({ id: user._id, email: user.email }, JWT_SECRET);
+    res.json({ token, id: user._id });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -293,6 +357,16 @@ app.get('/api/notifications', (req, res) => {
 
 // --- REPORT SCHEDULING & HISTORY ---
 
+app.get('/api/reports/schedule', authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    await connectDb();
+    const user = await (User as any).findById(req.user?.id).select('report_interval');
+    res.json({ schedule: user?.report_interval || 'none' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/reports/schedule', authenticateToken, async (req: AuthRequest, res) => {
   try {
     const { interval } = req.body; // 'daily', 'weekly', 'monthly', 'none'
@@ -453,6 +527,11 @@ const startCronJobs = () => {
 async function startServer() {
   await connectDb();
   startCronJobs();
+  // Handle API 404s before SPA fallback (must be before vite.middlewares to avoid HTML response for missing API)
+  app.all('/api/*', (req, res) => {
+    res.status(404).json({ error: `API route ${req.method} ${req.url} not found` });
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { 
@@ -462,11 +541,15 @@ async function startServer() {
       },
       appType: 'spa',
     });
-    app.use(vite.middlewares);
+  app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.all('*', (req, res) => {
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

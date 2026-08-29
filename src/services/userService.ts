@@ -41,6 +41,24 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 
 export const userService = {
   getProfile: async (uid: string): Promise<UserProfile | null> => {
+    if (uid.startsWith('guest_') || !auth.currentUser) {
+      const local = localStorage.getItem(`safeshelf_profile_${uid}`);
+      if (local) {
+        try { return JSON.parse(local) as UserProfile; } catch { /* ignore */ }
+      }
+      return {
+        uid,
+        fullName: 'Demo User',
+        email: 'demo@safeshelf.ai',
+        role: 'Household User',
+        provider: 'email',
+        preferredLanguage: 'English',
+        onboardingCompleted: true,
+        createdAt: new Date(),
+        lastLogin: new Date()
+      };
+    }
+
     const path = `users/${uid}`;
     try {
       const docRef = doc(db, 'users', uid);
@@ -48,14 +66,47 @@ export const userService = {
       if (docSnap.exists()) {
         return docSnap.data() as UserProfile;
       }
-      return null;
+      // If doc does not exist yet, build initial profile and create it
+      const newProfile: UserProfile = {
+        uid,
+        fullName: auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'User',
+        email: auth.currentUser?.email || `${uid}@safeshelf.local`,
+        role: 'Household User',
+        provider: 'email',
+        preferredLanguage: 'English',
+        onboardingCompleted: true,
+        createdAt: new Date(),
+        lastLogin: new Date()
+      };
+      await userService.createProfile(newProfile);
+      return newProfile;
     } catch (error) {
-      handleFirestoreError(error, OperationType.GET, path);
-      return null;
+      console.warn('Firestore getProfile warning, falling back to local:', error);
+      const local = localStorage.getItem(`safeshelf_profile_${uid}`);
+      if (local) {
+        try { return JSON.parse(local) as UserProfile; } catch { /* ignore */ }
+      }
+      return {
+        uid,
+        fullName: auth.currentUser?.displayName || auth.currentUser?.email?.split('@')[0] || 'User',
+        email: auth.currentUser?.email || `${uid}@safeshelf.local`,
+        role: 'Household User',
+        provider: 'email',
+        preferredLanguage: 'English',
+        onboardingCompleted: true,
+        createdAt: new Date(),
+        lastLogin: new Date()
+      };
     }
   },
 
   createProfile: async (profile: UserProfile): Promise<void> => {
+    localStorage.setItem(`safeshelf_profile_${profile.uid}`, JSON.stringify(profile));
+
+    if (profile.uid.startsWith('guest_') || !auth.currentUser) {
+      return;
+    }
+
     const path = `users/${profile.uid}`;
     try {
       const docRef = doc(db, 'users', profile.uid);
@@ -65,11 +116,15 @@ export const userService = {
         lastLogin: serverTimestamp()
       });
     } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, path);
+      console.warn('Firestore createProfile warning:', error);
     }
   },
 
   updateLastLogin: async (uid: string): Promise<void> => {
+    if (uid.startsWith('guest_') || !auth.currentUser) {
+      return;
+    }
+
     const path = `users/${uid}`;
     try {
       const docRef = doc(db, 'users', uid);
@@ -77,11 +132,24 @@ export const userService = {
         lastLogin: serverTimestamp()
       });
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, path);
+      console.warn('Firestore updateLastLogin warning:', error);
     }
   },
 
   markOnboardingComplete: async (uid: string): Promise<void> => {
+    const local = localStorage.getItem(`safeshelf_profile_${uid}`);
+    if (local) {
+      try {
+        const p = JSON.parse(local);
+        p.onboardingCompleted = true;
+        localStorage.setItem(`safeshelf_profile_${uid}`, JSON.stringify(p));
+      } catch { /* ignore */ }
+    }
+
+    if (uid.startsWith('guest_') || !auth.currentUser) {
+      return;
+    }
+
     const path = `users/${uid}`;
     try {
       const docRef = doc(db, 'users', uid);
@@ -89,17 +157,29 @@ export const userService = {
         onboardingCompleted: true
       });
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, path);
+      console.warn('Firestore markOnboardingComplete warning:', error);
     }
   },
 
   updateProfile: async (uid: string, updates: Partial<UserProfile>): Promise<void> => {
+    const local = localStorage.getItem(`safeshelf_profile_${uid}`);
+    if (local) {
+      try {
+        const p = { ...JSON.parse(local), ...updates };
+        localStorage.setItem(`safeshelf_profile_${uid}`, JSON.stringify(p));
+      } catch { /* ignore */ }
+    }
+
+    if (uid.startsWith('guest_') || !auth.currentUser) {
+      return;
+    }
+
     const path = `users/${uid}`;
     try {
       const docRef = doc(db, 'users', uid);
       await updateDoc(docRef, updates);
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, path);
+      console.warn('Firestore updateProfile warning:', error);
     }
   }
 };

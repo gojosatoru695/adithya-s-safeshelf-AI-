@@ -3,10 +3,10 @@
   "description": "AI-powered medicine and household inventory management system with a secure premium authentication system, OCR scanning, and smart refill planning.",
   "requestFramePermissions": [
     "camera",
-    "notifications",
     "microphone"
   ],
   "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API",
     "AI-powered scanning",
     "Inventory tracking",
     "Expiry alerts"

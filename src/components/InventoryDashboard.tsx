@@ -162,11 +162,8 @@ export const InventoryDashboard = ({ items, onRefresh, onEdit, onScan, elderlyMo
           { label: 'Low Stock', val: stats.lowStock, icon: <Activity />, color: 'orange' },
           { label: 'Total Value', val: `$${stats.totalValue.toFixed(0)}`, icon: <DollarSign />, color: 'emerald' }
         ].map((stat, i) => (
-          <motion.div 
+          <div 
             key={stat.label}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.05 }}
             className="bg-white p-6 rounded-[2rem] border-2 border-slate-50 shadow-sm"
           >
             <div className={`w-10 h-10 rounded-xl bg-${stat.color}-50 text-${stat.color}-600 flex items-center justify-center mb-4`}>
@@ -174,7 +171,7 @@ export const InventoryDashboard = ({ items, onRefresh, onEdit, onScan, elderlyMo
             </div>
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">{stat.label}</p>
             <p className="text-xl font-black text-slate-900">{stat.val}</p>
-          </motion.div>
+          </div>
         ))}
       </div>
 
@@ -309,11 +306,8 @@ export const InventoryDashboard = ({ items, onRefresh, onEdit, onScan, elderlyMo
           else if (daysLeft < 30) statusColor = 'bg-blue-400';
 
           return (
-            <motion.div 
+            <div 
               key={item.id}
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: idx * 0.05 }}
               onClick={() => {
                 if (selectedItems.length > 0) {
                   setSelectedItems(prev => isSelected ? prev.filter(id => id !== item.id) : [...prev, item.id!]);
@@ -370,19 +364,18 @@ export const InventoryDashboard = ({ items, onRefresh, onEdit, onScan, elderlyMo
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-slate-400">
-                    <span>Stock Level</span>
-                    <span className="text-slate-900">{item.quantity} {item.unit}</span>
-                  </div>
-                  <div className="h-2 w-full bg-slate-50 rounded-full overflow-hidden border border-slate-50">
-                    <motion.div 
-                      initial={{ width: 0 }}
-                      animate={{ width: `${Math.min(100, (item.quantity / (item.totalQuantity || 50)) * 100)}%` }}
-                      className={`h-full ${statusColor}`} 
-                    />
-                  </div>
-                </div>
+            <div className="space-y-2">
+              <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-slate-400">
+                <span>Stock Level</span>
+                <span className="text-slate-900">{item.quantity} {item.unit}</span>
+              </div>
+              <div className="h-2 w-full bg-slate-50 rounded-full overflow-hidden border border-slate-50">
+                <div 
+                  className={`h-full ${statusColor} transition-all`} 
+                  style={{ width: `${Math.min(100, (item.quantity / (item.totalQuantity || 50)) * 100)}%` }} 
+                />
+              </div>
+            </div>
 
                 <div className="pt-6 border-t border-slate-50 flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -402,7 +395,7 @@ export const InventoryDashboard = ({ items, onRefresh, onEdit, onScan, elderlyMo
                   </div>
                 </div>
               </div>
-            </motion.div>
+            </div>
           );
         })}
       </div>

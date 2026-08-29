@@ -32,9 +32,10 @@ import type { AuthRole, Language } from '../../types.ts';
 interface SignUpPageProps {
   onSignInClick: () => void;
   onSignUpSuccess: () => void;
+  onGuestLogin?: () => void;
 }
 
-export const SignUpPage: React.FC<SignUpPageProps> = ({ onSignInClick, onSignUpSuccess }) => {
+export const SignUpPage: React.FC<SignUpPageProps> = ({ onSignInClick, onSignUpSuccess, onGuestLogin }) => {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -81,7 +82,11 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({ onSignInClick, onSignUpS
       await updateProfile(user, { displayName: fullName });
       
       // Send verification email
-      await sendEmailVerification(user);
+      try {
+        await sendEmailVerification(user);
+      } catch {
+        /* Ignore verification sending errors if not configured */
+      }
 
       // Create User Profile in Firestore
       await userService.createProfile({
@@ -99,13 +104,15 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({ onSignInClick, onSignUpS
 
       onSignUpSuccess();
     } catch (err: any) {
-      console.error(err);
-      if (err.code === 'auth/email-already-in-use') {
+      console.warn('Signup notice:', err);
+      if (err.code === 'auth/operation-not-allowed') {
+        setError('Firebase Auth provider is not enabled in Firebase Console. You can explore instantly using Demo Mode.');
+      } else if (err.code === 'auth/email-already-in-use') {
         setError('Email already in use. Try signing in instead.');
       } else if (err.code === 'auth/weak-password') {
         setError('Password is too weak. Please use a stronger password.');
       } else {
-        setError('Failed to create account. Please try again.');
+        setError(err.message || 'Failed to create account. You can also explore in Demo Mode.');
       }
     } finally {
       setLoading(false);
@@ -144,8 +151,12 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({ onSignInClick, onSignUpS
       }
       onSignUpSuccess();
     } catch (err: any) {
-      console.error(err);
-      setError(`${providerType.charAt(0).toUpperCase() + providerType.slice(1)} authentication failed.`);
+      console.warn('Social signup notice:', err);
+      if (err.code === 'auth/operation-not-allowed') {
+        setError(`The ${providerType} provider is not enabled in Firebase Console. Try Demo Access.`);
+      } else {
+        setError(`${providerType.charAt(0).toUpperCase() + providerType.slice(1)} authentication failed. You can use Demo Access.`);
+      }
     } finally {
       setLoading(false);
     }
@@ -405,7 +416,20 @@ export const SignUpPage: React.FC<SignUpPageProps> = ({ onSignInClick, onSignUpS
              </button>
           </div>
 
-          <p className="mt-10 text-center text-sm font-medium text-slate-500">
+          {onGuestLogin && (
+            <div className="mt-6">
+              <button
+                type="button"
+                onClick={onGuestLogin}
+                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 rounded-2xl py-3.5 px-4 font-semibold text-sm transition-all flex items-center justify-center gap-2 active:scale-98"
+              >
+                <ShieldCheck size={18} className="text-emerald-600" />
+                Explore with Instant Demo Account
+              </button>
+            </div>
+          )}
+
+          <p className="mt-8 text-center text-sm font-medium text-slate-500">
             Already have an account?{' '}
             <button 
               onClick={onSignInClick}

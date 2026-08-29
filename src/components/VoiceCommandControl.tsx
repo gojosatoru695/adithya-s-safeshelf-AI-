@@ -158,6 +158,14 @@ export const VoiceCommandControl = ({
           // Re-use current transcript if Gemini doesn't suggest better search query
           onAction?.('SEARCH', result.value || transcript);
           break;
+
+        case 'LIST_EXPIRY':
+          onAction?.('TAB', 'inventory'); // Switch to inventory to show list
+          break;
+
+        case 'GENERATE_REPORT':
+          onAction?.('GENERATE_REPORT');
+          break;
       }
 
       setStatus('success');

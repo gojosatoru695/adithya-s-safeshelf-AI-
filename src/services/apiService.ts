@@ -117,19 +117,27 @@ export const apiService = {
   },
 
   getNotifications: async (userId: string): Promise<Notification[]> => {
-    const res = await fetch('/api/notifications', {
-      headers: { ...getAuthHeaders(), 'x-user-id': userId }
-    });
-    if (!res.ok) throw new Error('Failed to fetch notifications');
-    return res.json();
+    try {
+      const res = await fetch('/api/notifications', {
+        headers: { ...getAuthHeaders(), 'x-user-id': userId }
+      });
+      if (!res.ok) return [];
+      return await res.json();
+    } catch {
+      return [];
+    }
   },
   
   getSmartRefill: async (budget: number): Promise<SmartRecommendation[]> => {
-    const res = await fetch(`/api/smart-refill?budget=${budget}`, {
-      headers: getAuthHeaders()
-    });
-    if (!res.ok) throw new Error('Failed to fetch smart refill recommendations');
-    return res.json();
+    try {
+      const res = await fetch(`/api/smart-refill?budget=${budget}`, {
+        headers: getAuthHeaders()
+      });
+      if (!res.ok) return [];
+      return await res.json();
+    } catch {
+      return [];
+    }
   }
 };
 

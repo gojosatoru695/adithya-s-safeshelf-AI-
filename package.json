@@ -1,14 +1,15 @@
 {
-  "name": "react-example",
+  "name": "safeshelf-ai",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "main": "dist/server.js",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=esm --outfile=dist/server.js --packages=external",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "start": "node server.ts",
+    "start": "node dist/server.js",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
@@ -17,10 +18,13 @@
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
+    "esbuild": "^0.28.0",
     "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "firebase": "^12.12.1",
     "jsonwebtoken": "^9.0.3",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.546.0",
     "mongoose": "^9.6.1",
     "motion": "^12.23.24",
@@ -29,8 +33,9 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
-    "recharts": "^3.8.1",
-    "tesseract.js": "^7.0.0"
+    "tesseract.js": "^7.0.0",
+    "xlsx": "^0.18.5",
+    "tsx": "^4.21.0"
   },
   "devDependencies": {
     "@firebase/eslint-plugin-security-rules": "^0.0.2",
@@ -45,7 +50,6 @@
     "@vitejs/plugin-react": "^5.0.4",
     "autoprefixer": "^10.4.21",
     "tailwindcss": "^4.1.14",
-    "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

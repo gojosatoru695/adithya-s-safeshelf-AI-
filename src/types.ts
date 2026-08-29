@@ -17,6 +17,32 @@ export interface DoseLog {
   timestamp: any;
 }
 
+export interface UserSettings {
+  reminderVoiceLanguage: Language;
+  voiceVolume: number;
+  alarmRepeatCount: number;
+  customReminderMessage: string;
+  enableVoiceAssistant: boolean;
+  defaultReminderTone: string;
+  notificationsEnabled: boolean;
+  snoozeDuration: number;
+  repeatIfIgnored: boolean;
+  autoSaveOcr: boolean;
+  requireOcrConfirmation: boolean;
+  showConfidenceScore: boolean;
+  preferredScanMode: 'package' | 'prescription';
+  reportFrequency: 'weekly' | 'monthly' | 'none';
+  exportType: 'PDF' | 'Excel';
+  gmailDelivery: boolean;
+  whatsappSharing: boolean;
+  sortBy: 'expiry' | 'confidence' | 'category';
+  lowStockThreshold: number;
+  expiryWarningDays: number;
+  preferredRefillPlatform: string;
+  refillBudget: 'economy' | 'standard' | 'premium';
+  refillReminders: boolean;
+}
+
 export interface UserProfile {
   uid: string;
   fullName: string;
@@ -28,6 +54,8 @@ export interface UserProfile {
   createdAt: any;
   lastLogin: any;
   onboardingCompleted: boolean;
+  profilePicture?: string;
+  settings?: UserSettings;
   reminderTimes?: {
     Morning: string;
     Afternoon: string;
@@ -79,6 +107,22 @@ export interface Medicine {
   notes?: string;
   tags?: string[];
   refillLink?: string;
+}
+
+export interface RiskAnalysis {
+  score: number;
+  status: string;
+  alerts: string[];
+}
+
+export interface RefillSuggestion {
+  name: string;
+  reason: string;
+  urgency: 'low' | 'medium' | 'high';
+  medicineId?: string;
+  currentQuantity?: number;
+  remainingDays?: number;
+  suggestedQuantity?: number;
 }
 
 export interface ExtractedPrescriptionItem {

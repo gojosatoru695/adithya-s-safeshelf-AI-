@@ -30,9 +30,10 @@ import { userService } from '../../services/userService.ts';
 interface LoginPageProps {
   onSignUpClick: () => void;
   onLoginSuccess: () => void;
+  onGuestLogin?: () => void;
 }
 
-export const LoginPage: React.FC<LoginPageProps> = ({ onSignUpClick, onLoginSuccess }) => {
+export const LoginPage: React.FC<LoginPageProps> = ({ onSignUpClick, onLoginSuccess, onGuestLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -50,13 +51,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSignUpClick, onLoginSucc
       await userService.updateLastLogin(userCredential.user.uid);
       onLoginSuccess();
     } catch (err: any) {
-      console.error(err);
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-        setError('Invalid email or password. Please try again.');
+      console.warn('Firebase login notice:', err);
+      if (err.code === 'auth/operation-not-allowed') {
+        setError('Firebase Auth provider is not enabled in Firebase Console. You can click "Instant Demo Access" below to enter immediately.');
+      } else if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        setError('Invalid email or password. Please try again or use Demo Access.');
       } else if (err.code === 'auth/too-many-requests') {
-        setError('Too many failed attempts. Please try again later.');
+        setError('Too many failed attempts. Please try again later or use Demo Access.');
       } else {
-        setError('An error occurred during login. Please try again.');
+        setError(err.message || 'An error occurred during login. You can also explore in Demo Mode.');
       }
     } finally {
       setLoading(false);
@@ -81,8 +84,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSignUpClick, onLoginSucc
       
       const profile = await userService.getProfile(user.uid);
       if (!profile) {
-        // This is a sign up via social, but we'll redirect to a "complete profile" if needed
-        // For now, well create a minimal profile if it doesn't exist
         await userService.createProfile({
           uid: user.uid,
           fullName: user.displayName || 'User',
@@ -99,8 +100,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSignUpClick, onLoginSucc
       }
       onLoginSuccess();
     } catch (err: any) {
-      console.error(err);
-      setError(`${providerType.charAt(0).toUpperCase() + providerType.slice(1)} login failed. Please try again.`);
+      console.warn('Social login notice:', err);
+      if (err.code === 'auth/operation-not-allowed') {
+        setError(`The ${providerType} provider is not enabled in Firebase Console. Try Demo Access.`);
+      } else {
+        setError(`${providerType.charAt(0).toUpperCase() + providerType.slice(1)} login failed. You can use Demo Access.`);
+      }
     } finally {
       setLoading(false);
     }
@@ -325,7 +330,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSignUpClick, onLoginSucc
             </button>
           </div>
 
-          <p className="mt-10 text-center text-sm font-medium text-slate-500">
+          {onGuestLogin && (
+            <div className="mt-6">
+              <button
+                type="button"
+                onClick={onGuestLogin}
+                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 rounded-2xl py-3.5 px-4 font-semibold text-sm transition-all flex items-center justify-center gap-2 active:scale-98"
+              >
+                <ShieldCheck size={18} className="text-emerald-600" />
+                Explore with Instant Demo Account
+              </button>
+            </div>
+          )}
+
+          <p className="mt-8 text-center text-sm font-medium text-slate-500">
             Don't have an account?{' '}
             <button 
               onClick={onSignUpClick}

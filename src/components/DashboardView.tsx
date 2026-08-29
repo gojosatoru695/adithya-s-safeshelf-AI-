@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { Clock, CheckCircle2, AlertCircle, Calendar, ArrowRight, Heart, Droplet, Zap } from 'lucide-react';
+import { Clock, CheckCircle2, AlertCircle, Calendar, ArrowRight, Heart, Droplet, Zap, RefreshCcw, Sparkles } from 'lucide-react';
 import { Medicine, DoseLog } from '../types.ts';
 
 import { getISTDate, getISTDateString, isSameISTDay } from '../lib/dateUtils.ts';
@@ -11,9 +11,21 @@ interface DashboardViewProps {
   onTakeDose: (med: Medicine, slot: string) => void;
   onOpenCalendar: () => void;
   elderlyMode?: boolean;
+  onRefreshAI?: () => void;
+  isAnalyzing?: boolean;
+  aiInsights?: string | null;
 }
 
-export const DashboardView = ({ medicines, logs, onTakeDose, onOpenCalendar, elderlyMode = false }: DashboardViewProps) => {
+export const DashboardView = ({ 
+  medicines, 
+  logs, 
+  onTakeDose, 
+  onOpenCalendar, 
+  elderlyMode = false,
+  onRefreshAI,
+  isAnalyzing = false,
+  aiInsights
+}: DashboardViewProps) => {
   const nowIST = getISTDate();
   const todayISTString = getISTDateString();
   const currentHour = nowIST.getHours();
@@ -68,20 +80,17 @@ export const DashboardView = ({ medicines, logs, onTakeDose, onOpenCalendar, eld
           whileHover={{ scale: 1.02, translateY: -5 }}
           whileTap={{ scale: 0.98 }}
           onClick={onOpenCalendar}
-          className="bg-white p-8 rounded-[2.5rem] border-2 border-slate-100 shadow-sm text-left group transition-all hover:border-blue-200 hover:shadow-xl hover:shadow-blue-500/5 cursor-pointer"
+          className="bg-white p-7 rounded-[2.5rem] border border-slate-100 shadow-sm text-left group transition-all hover:border-blue-200 hover:shadow-xl hover:shadow-blue-500/5 cursor-pointer"
         >
           <div className="flex items-center justify-between mb-4">
-            <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors">
-              <Calendar size={24} />
+            <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors">
+              <Calendar size={20} />
             </div>
-            <ArrowRight size={20} className="text-slate-300 group-hover:text-blue-500 transition-colors" />
+            <ArrowRight size={18} className="text-slate-300 group-hover:text-blue-500 transition-colors" />
           </div>
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Today's Dose Progress</p>
-          <p className="text-2xl font-black text-slate-900">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Dose Progress</p>
+          <p className="text-xl font-black text-slate-900">
             {takenToday} / {scheduledToday} Doses
-          </p>
-          <p className="mt-2 text-[10px] font-bold text-blue-500 flex items-center gap-1">
-             Click for 1-week goal ledger
           </p>
         </motion.button>
 
@@ -89,15 +98,15 @@ export const DashboardView = ({ medicines, logs, onTakeDose, onOpenCalendar, eld
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="bg-white p-8 rounded-[2.5rem] border-2 border-slate-100 shadow-sm"
+          className="bg-white p-7 rounded-[2.5rem] border border-slate-100 shadow-sm"
         >
           <div className="flex items-center justify-between mb-4">
-            <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center">
-              <AlertCircle size={24} />
+            <div className="w-10 h-10 bg-rose-50 text-rose-600 rounded-xl flex items-center justify-center">
+              <AlertCircle size={20} />
             </div>
           </div>
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Attention</p>
-          <p className="text-2xl font-black text-slate-900">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Attention</p>
+          <p className="text-xl font-black text-slate-900">
             {activeMedicines.filter(m => m.status === 'low-stock').length} Low Stock
           </p>
         </motion.div>
@@ -106,15 +115,15 @@ export const DashboardView = ({ medicines, logs, onTakeDose, onOpenCalendar, eld
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          className="bg-blue-600 p-8 rounded-[2.5rem] shadow-xl shadow-blue-200"
+          className="bg-slate-900 p-7 rounded-[2.5rem] shadow-xl shadow-slate-200 text-white"
         >
           <div className="flex items-center justify-between mb-4">
-            <div className="w-12 h-12 bg-white/20 text-white rounded-2xl flex items-center justify-center">
-              <Clock size={24} />
+            <div className="w-10 h-10 bg-white/10 text-white rounded-xl flex items-center justify-center">
+              <Clock size={20} />
             </div>
           </div>
-          <p className="text-xs font-bold text-white/60 uppercase tracking-widest mb-1">Next Up</p>
-          <p className="text-2xl font-black text-white">{currentSlot.name} Dose</p>
+          <p className="text-[10px] font-black text-slate-400/60 uppercase tracking-widest mb-1">Next Up</p>
+          <p className="text-xl font-black text-white">{currentSlot.name} Dose</p>
         </motion.div>
       </div>
 
@@ -122,6 +131,16 @@ export const DashboardView = ({ medicines, logs, onTakeDose, onOpenCalendar, eld
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h2 className={`${elderlyMode ? 'text-3xl' : 'text-xl'} font-black text-slate-900`}>Intake Timeline</h2>
+          {onRefreshAI && (
+            <button 
+              onClick={onRefreshAI}
+              disabled={isAnalyzing}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-50 text-slate-500 rounded-xl text-[10px] font-black hover:bg-slate-100 transition-all uppercase tracking-widest disabled:opacity-50"
+            >
+              {isAnalyzing ? <RefreshCcw size={12} className="animate-spin" /> : <Sparkles size={12} />}
+              {isAnalyzing ? 'Analyzing...' : 'Refresh AI Insights'}
+            </button>
+          )}
         </div>
 
         <div className="grid grid-cols-1 gap-6">
@@ -198,14 +217,6 @@ export const DashboardView = ({ medicines, logs, onTakeDose, onOpenCalendar, eld
         </div>
       </div>
 
-      {elderlyMode && (
-        <div className="fixed bottom-32 right-10 flex flex-col gap-4">
-          <button className="w-24 h-24 bg-rose-600 text-white rounded-full shadow-2xl flex items-center justify-center flex-col gap-1 border-4 border-white animate-bounce">
-            <AlertCircle size={32} />
-            <span className="text-[10px] font-black uppercase">SOS</span>
-          </button>
-        </div>
-      )}
     </div>
   );
 };

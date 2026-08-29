@@ -69,7 +69,7 @@ export const ReminderMonitor = ({ medicines, logs, language, onRefresh, elderlyM
       });
     };
 
-    const interval = setInterval(checkReminders, 10000); // Check every 10s for precision
+    const interval = setInterval(checkReminders, 30000); // Optimized from 10s to 30s
     return () => clearInterval(interval);
   }, [medicines, language, activeAlarm]);
 
@@ -129,7 +129,7 @@ export const ReminderMonitor = ({ medicines, logs, language, onRefresh, elderlyM
       timing: slot,
       language: med.voiceLanguage || language,
       customMessage: med.voiceAlarmType === 'custom' ? med.voiceCustomMessage : undefined,
-      volume: (med.alarmVolume || 80) / 100
+      volume: 1.0 // Force full volume for real alarms
     });
 
     if (utterance) {

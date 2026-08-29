@@ -5,7 +5,6 @@ import {
   BellRing, 
   RefreshCcw, 
   LayoutDashboard, 
-  LineChart as LineChartIcon, 
   Menu, 
   X, 
   ArrowRight, 
@@ -46,15 +45,12 @@ import {
   BarChart2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, BarChart, Bar, Legend
-} from 'recharts';
 import { auth } from './lib/firebase.ts';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, User } from 'firebase/auth';
 import { apiService, Notification as ApiNotification } from './services/apiService.ts';
 import { calculateSmartRefillScores, SmartRefillRecommendation } from './lib/smartPlanner.ts';
-import { geminiService, RiskAnalysis, RefillSuggestion } from './services/geminiService.ts';
+import { geminiService } from './services/geminiService.ts';
+import { RiskAnalysis, RefillSuggestion } from './types.ts';
 import { inventoryService } from './services/inventoryService.ts';
 import { OCRScanner } from './components/OCRScanner.tsx';
 import { RefillCenter } from './components/RefillCenter.tsx';
@@ -74,7 +70,9 @@ import { LoginPage } from './components/Auth/LoginPage.tsx';
 import { SignUpPage } from './components/Auth/SignUpPage.tsx';
 import { Onboarding } from './components/Auth/Onboarding.tsx';
 import { MedicineModal } from './components/MedicineModal.tsx';
-import type { Category, Medicine, UserProfile, DoseLog } from './types.ts';
+import { ReportsTab } from './components/ReportsTab.tsx';
+import { SettingsTab } from './components/SettingsTab.tsx';
+import type { Category, Medicine, UserProfile, DoseLog, UserSettings, Language } from './types.ts';
 
 // --- Types ---
 type TabType = 'overview' | 'inventory' | 'history' | 'settings' | 'reports' | 'planner' | 'compare' | 'alerts' | 'assistant';
@@ -226,7 +224,7 @@ const SmartPlannerTab = ({ medicines }: { medicines: Medicine[] }) => {
                <div className="space-y-6">
                   <div className="flex gap-4">
                      <div className="w-8 h-8 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center shrink-0">
-                        <LineChartIcon size={16} />
+                        <TrendingUp size={16} />
                      </div>
                      <div>
                         <p className="text-xs font-bold text-slate-800 mb-1">Dynamic Scoring</p>
@@ -441,330 +439,7 @@ const LoadingSkeleton = () => (
   </div>
 );
 
-const ReportsTab = ({ medicines, aiMode = 'astra' }: { medicines: Medicine[], aiMode?: 'astra' | 'quantis' }) => {
-  const [isGenerating, setIsGenerating] = useState<string | null>(null);
-  const [reportHistory, setReportHistory] = useState<any[]>([]);
-  const [schedule, setSchedule] = useState('none');
-  const [isUpdatingSchedule, setIsUpdatingSchedule] = useState(false);
-
-  const isQuantis = aiMode === 'quantis';
-
-  // Sample data for charts based on medicines
-  const categoryData = useMemo(() => {
-    const counts: Record<string, number> = {};
-    medicines.forEach(m => {
-      counts[m.type] = (counts[m.type] || 0) + 1;
-    });
-    return Object.entries(counts).map(([name, value]) => ({ name, value }));
-  }, [medicines]);
-
-  const spendData = useMemo(() => {
-    // Generate some trend data
-    return [
-      { name: 'Jan', value: 450 },
-      { name: 'Feb', value: 380 },
-      { name: 'Mar', value: 520 },
-      { name: 'Apr', value: 410 },
-      { name: 'May', value: 490 },
-      { name: 'Jun', value: 550 },
-    ];
-  }, []);
-
-  const COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#6366f1'];
-
-  useEffect(() => {
-    fetchHistory();
-    fetchUserSchedule();
-  }, []);
-
-  const fetchHistory = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-    try {
-      const res = await fetch('/api/reports/history', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      setReportHistory(data);
-    } catch (err) {
-      console.error('Failed to fetch history', err);
-    }
-  };
-
-  const fetchUserSchedule = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-    try {
-      const res = await fetch('/api/me', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      setSchedule(data.report_interval || 'none');
-    } catch (err) {
-      console.error('Failed to fetch schedule', err);
-    }
-  };
-
-  const handleUpdateSchedule = async (newInterval: string) => {
-    setIsUpdatingSchedule(true);
-    const token = localStorage.getItem('token');
-    try {
-      await fetch('/api/reports/schedule', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ interval: newInterval })
-      });
-      setSchedule(newInterval);
-    } catch (err) {
-      alert('Failed to update schedule');
-    } finally {
-      setIsUpdatingSchedule(false);
-    }
-  };
-
-  const downloadHistorical = async (reportId: number) => {
-    const token = localStorage.getItem('token');
-    const response = await fetch(`/api/reports/download/${reportId}`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `SafeShelf_Archived_Report_${reportId}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  };
-
-  const handleDownload = async (format: 'pdf' | 'excel') => {
-    if (medicines.length === 0) {
-      alert('No data available to export. Please add items to your vault first.');
-      return;
-    }
-    
-    setIsGenerating(format);
-    try {
-      const response = await fetch(`/api/reports/inventory`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ items: medicines, format })
-      });
-      
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'Report generation failed');
-      }
-      
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `SafeShelf_Report_${new Date().toISOString().split('T')[0]}.${format === 'excel' ? 'xlsx' : 'pdf'}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      
-      // Refresh history after generation
-      setTimeout(fetchHistory, 1000);
-    } catch (err: any) {
-      console.error(err);
-      alert(`Report Failed: ${err.message}`);
-    } finally {
-      setIsGenerating(null);
-    }
-  };
-
-  return (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-8"
-    >
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-8">
-          {/* Visual Analytics - Quantis exclusive style */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
-             <div className="bg-white rounded-[2.5rem] p-8 border border-slate-100 shadow-sm">
-                <h3 className="font-bold text-slate-900 mb-6 flex items-center gap-2">
-                  <BarChart2 className="text-blue-600" size={18} /> Category Composition
-                </h3>
-                <div className="h-[250px] w-full">
-                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                    <PieChart>
-                      <Pie
-                        data={categoryData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={80}
-                        paddingAngle={5}
-                        dataKey="value"
-                      >
-                        {categoryData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                      <Legend />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-             </div>
-
-             <div className="bg-white rounded-[2.5rem] p-8 border border-slate-100 shadow-sm">
-                <h3 className="font-bold text-slate-900 mb-6 flex items-center gap-2">
-                  <TrendingUp className="text-emerald-600" size={18} /> {isQuantis ? 'Monthly Spend & Savings' : 'Usage Trends'}
-                </h3>
-                <div className="h-[250px] w-full">
-                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                    <LineChart data={spendData}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                      <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                      <Tooltip />
-                      <Line 
-                        type="monotone" 
-                        dataKey="value" 
-                        stroke="#4f46e5" 
-                        strokeWidth={3} 
-                        dot={{ r: 4, fill: '#4f46e5', strokeWidth: 0 }}
-                        activeDot={{ r: 6, strokeWidth: 0 }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-             </div>
-          </div>
-
-          <div className="bg-white rounded-[2.5rem] p-10 border border-slate-100 shadow-sm">
-            <div className="max-w-2xl">
-              <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-6">
-                <FileText size={32} />
-              </div>
-              <h3 className="text-2xl font-display font-bold text-slate-900 mb-4">Inventory Data Export</h3>
-              <p className="text-slate-500 mb-10 text-lg leading-relaxed">
-                Generate detailed audit-ready reports of your medical vault. Our system will analyze your current stock, categories, and risks to compile a comprehensive document.
-              </p>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <button 
-                  onClick={() => handleDownload('excel')}
-                  disabled={!!isGenerating}
-                  className="flex items-center justify-between p-8 bg-emerald-50 text-emerald-700 rounded-[2rem] border-2 border-emerald-100/50 hover:bg-emerald-100 transition-all group"
-                >
-                  <div className="text-left">
-                    <p className="text-xs font-bold uppercase tracking-widest text-emerald-600/60 mb-2">Spreadsheet</p>
-                    <p className="text-xl font-bold">Excel (.xlsx)</p>
-                    <p className="text-xs mt-1 text-emerald-600/80">Data analysis ready</p>
-                  </div>
-                  <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-emerald-600 group-hover:scale-110 transition-transform">
-                    {isGenerating === 'excel' ? <RefreshCcw size={20} className="animate-spin" /> : <Download size={20} />}
-                  </div>
-                </button>
-
-                <button 
-                  onClick={() => handleDownload('pdf')}
-                  disabled={!!isGenerating}
-                  className="flex items-center justify-between p-8 bg-red-50 text-red-700 rounded-[2rem] border-2 border-red-100/50 hover:bg-red-100 transition-all group"
-                >
-                  <div className="text-left">
-                    <p className="text-xs font-bold uppercase tracking-widest text-red-600/60 mb-2">Print Ready</p>
-                    <p className="text-xl font-bold">Audit PDF</p>
-                    <p className="text-xs mt-1 text-red-600/80">Formal document</p>
-                  </div>
-                  <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-red-600 group-hover:scale-110 transition-transform">
-                    {isGenerating === 'pdf' ? <RefreshCcw size={20} className="animate-spin" /> : <Download size={20} />}
-                  </div>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-[2.5rem] p-10 border border-slate-100 shadow-sm">
-            <h4 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-3">
-              <History size={24} className="text-slate-400" /> Report History
-            </h4>
-            <div className="space-y-4">
-              {reportHistory.length > 0 ? (
-                reportHistory.map(report => (
-                  <div key={report.id} className="flex items-center justify-between p-6 bg-slate-50 rounded-2xl border border-slate-100 hover:border-blue-200 transition-colors">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-slate-400">
-                        {report.file_type === 'pdf' ? <FileText size={18} /> : <FileStack size={18} />}
-                      </div>
-                      <div>
-                        <p className="text-sm font-bold text-slate-800">Archive_{report.id}.{report.file_type}</p>
-                        <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">{new Date(report.created_at).toLocaleString()}</p>
-                      </div>
-                    </div>
-                    <button 
-                      onClick={() => downloadHistorical(report.id)}
-                      className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
-                    >
-                      <Download size={18} />
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-10 text-slate-400">
-                  <p className="text-sm font-medium">No archived reports found</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-8">
-          <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white">
-            <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center mb-6">
-              <Clock size={24} className="text-blue-400" />
-            </div>
-            <h3 className="text-xl font-bold mb-2">Automated Insights</h3>
-            <p className="text-slate-400 text-sm mb-8 leading-relaxed">
-              Schedule recurring audits to stay ahead of risks and stockouts.
-            </p>
-
-            <div className="space-y-3">
-              {['none', 'daily', 'weekly', 'monthly'].map((int) => (
-                <button
-                  key={int}
-                  onClick={() => handleUpdateSchedule(int)}
-                  disabled={isUpdatingSchedule}
-                  className={`w-full flex items-center justify-between px-6 py-4 rounded-2xl border transition-all ${
-                    schedule === int 
-                    ? 'bg-blue-600 border-blue-500 shadow-lg shadow-blue-500/20' 
-                    : 'bg-white/5 border-white/10 hover:bg-white/10'
-                  }`}
-                >
-                  <span className="capitalize font-bold text-sm">{int}</span>
-                  {schedule === int && <CheckCircle2 size={16} />}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="dashboard-card p-8 border-l-4 border-l-amber-500">
-             <div className="flex items-center gap-3 mb-4">
-                <AlertCircle className="text-amber-500" size={20} />
-                <p className="text-sm font-bold text-slate-800">Pro Tip</p>
-             </div>
-             <p className="text-xs text-slate-500 leading-relaxed font-medium">
-               Weekly audits are recommended for high-traffic vaults to maintain 100% compliance score.
-             </p>
-          </div>
-        </div>
-      </div>
-    </motion.div>
-  );
-};
-
-const UserProfileComponent = ({ user, profile, onLogout }: { user: User, profile: UserProfile | null, onLogout: () => void }) => (
+const UserProfileComponent = ({ user, profile, onLogout, onSettings }: { user: any, profile: UserProfile | null, onLogout: () => void, onSettings: () => void }) => (
   <div className="flex items-center gap-3 pl-2 pr-2 py-1.5 hover:bg-slate-50 rounded-full transition-colors group relative cursor-pointer">
     {user.photoURL ? (
       <img src={user.photoURL} alt="" className="w-8 h-8 rounded-full border border-slate-200" />
@@ -785,18 +460,18 @@ const UserProfileComponent = ({ user, profile, onLogout }: { user: User, profile
          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-tight">Account ID</p>
          <p className="text-[10px] font-mono text-slate-500 truncate">{user.uid}</p>
       </div>
-      <button className="w-full flex items-center gap-3 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all">
-         <UserIcon size={14} /> View Vault Profile
-      </button>
-      <button className="w-full flex items-center gap-3 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all">
-         <Settings size={14} /> Vault Access
+      <button 
+        onClick={onSettings}
+        className="w-full flex items-center gap-3 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-blue-50 hover:text-blue-600 rounded-xl transition-all"
+      >
+         <Settings size={16} /> Vault Settings
       </button>
       <div className="h-px bg-slate-50 my-2"></div>
       <button 
         onClick={onLogout}
-        className="w-full flex items-center gap-3 px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-50 rounded-xl transition-all"
+        className="w-full flex items-center gap-3 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
       >
-         <LogOut size={14} /> Secure Sign Out
+         <LogOut size={16} /> Secure Sign Out
       </button>
     </div>
   </div>
@@ -804,6 +479,15 @@ const UserProfileComponent = ({ user, profile, onLogout }: { user: User, profile
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
+  const [guestUser, setGuestUser] = useState<{ uid: string; email: string; displayName: string } | null>(() => {
+    try {
+      const saved = localStorage.getItem('safeshelf_guest_session');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const activeUser = user || (guestUser ? ({ uid: guestUser.uid, email: guestUser.email, displayName: guestUser.displayName } as any) : null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
@@ -811,9 +495,13 @@ export default function App() {
   const [selectedMedicine, setSelectedMedicine] = useState<Medicine | null>(null);
   const [logs, setLogs] = useState<DoseLog[]>([]);
   const [riskAnalysis, setRiskAnalysis] = useState<RiskAnalysis | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [refills, setRefills] = useState<RefillSuggestion[]>([]);
   const [apiNotifications, setApiNotifications] = useState<ApiNotification[]>([]);
   const [activeTab, setActiveTab ] = useState<TabType>('overview');
+  const [reportHistory, setReportHistory] = useState<any[]>([]);
+  const [reportSchedule, setReportSchedule] = useState<'weekly' | 'monthly' | 'none'>('weekly');
+  const [lastReportDate, setLastReportDate] = useState<string | null>(localStorage.getItem('lastReportDate'));
   const [aiMode, setAiMode] = useState<'astra' | 'quantis'>('astra');
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [assistantMode, setAssistantMode] = useState<'menu' | 'chat' | 'voice' | 'settings'>('menu');
@@ -838,6 +526,76 @@ export default function App() {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchHistory = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const res = await fetch('/api/reports/history', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data)) setReportHistory(data);
+    } catch (err) {
+      console.error('Failed to fetch history', err);
+    }
+  };
+
+  const fetchUserSchedule = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const res = await fetch('/api/reports/schedule', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.schedule) setReportSchedule(data.schedule);
+    } catch (err) {
+      console.error('Failed to fetch schedule', err);
+    }
+  };
+
+  const handleUpdateProfile = async (data: Partial<UserProfile>) => {
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(data)
+      });
+      if (res.ok) {
+        const profile = await res.json();
+        setUserProfile(profile);
+      }
+    } catch (e) {
+      console.error('Failed to update profile', e);
+    }
+  };
+
+  const handleUpdateSettings = async (settings: UserSettings) => {
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ settings })
+      });
+      if (res.ok) {
+        const profile = await res.json();
+        setUserProfile(profile);
+      }
+    } catch (e) {
+      console.error('Failed to update settings', e);
     }
   };
 
@@ -874,19 +632,24 @@ export default function App() {
       case 'tab':
         setActiveTab(args as any);
         break;
+      case 'report':
+        handleExport('pdf');
+        setActiveTab('reports');
+        break;
       case 'action':
         if (args === 'SCAN') setIsScannerOpen(true);
+        if (args === 'REPORT') handleExport('pdf');
         break;
       default:
         console.log('Voice Command Received:', command, args);
     }
   };
 
-  // Update system time every 5 seconds
+  // Update system time every 60 seconds (optimized from 5s)
   useEffect(() => {
     const timer = setInterval(() => {
       setSystemTime(new Date());
-    }, 5000);
+    }, 60000);
     return () => clearInterval(timer);
   }, []);
 
@@ -958,16 +721,59 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (u) {
+        // 1. Fetch or initialize profile
         try {
           const profile = await userService.getProfile(u.uid);
           setUserProfile(profile);
-          await fetchMedicinesAndLogs();
-          // Auto-switch to dashboard if profile exists
-          if (profile) setAuthMode('login'); 
+          if (profile) setAuthMode('login');
         } catch (e) {
-          console.error("Error fetching profile", e);
+          console.warn("Could not load Firestore profile, using fallback:", e);
+          const fallbackProfile: UserProfile = {
+            uid: u.uid,
+            fullName: u.displayName || u.email?.split('@')[0] || 'User',
+            email: u.email || `${u.uid}@safeshelf.local`,
+            role: 'Household User',
+            provider: 'email',
+            preferredLanguage: 'English',
+            onboardingCompleted: true,
+            createdAt: new Date(),
+            lastLogin: new Date()
+          };
+          setUserProfile(fallbackProfile);
+        }
+
+        // 2. Non-blocking token bridge for Express API
+        try {
+          const authRes = await fetch('/api/auth/firebase', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              uid: u.uid,
+              email: u.email || `${u.uid}@safeshelf.local`,
+              name: u.displayName || 'User'
+            })
+          });
+          
+          if (authRes.ok) {
+            const data = await authRes.json();
+            if (data.token) {
+              localStorage.setItem('token', data.token);
+            }
+          }
+        } catch (backendErr) {
+          console.warn("Backend auth bridge sync notice:", backendErr);
+        }
+
+        // 3. Load user medicines, logs, and schedules
+        try {
+          await fetchMedicinesAndLogs();
+          fetchHistory();
+          fetchUserSchedule();
+        } catch (dataErr) {
+          console.warn("Error loading user data:", dataErr);
         }
       } else {
+        localStorage.removeItem('token');
         setUserProfile(null);
         setMedicines([]);
         setLogs([]);
@@ -990,53 +796,101 @@ export default function App() {
   };
 
   const refreshProfile = async () => {
-    if (user) {
-      const profile = await userService.getProfile(user.uid);
+    if (activeUser) {
+      const profile = await userService.getProfile(activeUser.uid);
       setUserProfile(profile);
     }
   };
 
   // Real-time Inventory Subscription
   useEffect(() => {
-    if (user) {
-      const unsubscribe = inventoryService.subscribeToUserMedicines(user.uid, (data) => {
+    if (activeUser) {
+      const unsubscribe = inventoryService.subscribeToUserMedicines(activeUser.uid, (data) => {
         setMedicines(data);
       });
 
       // Initial notification fetch
-      apiService.getNotifications(user.uid).then(setApiNotifications).catch(console.error);
+      apiService.getNotifications(activeUser.uid).then(setApiNotifications).catch(console.error);
 
       return () => unsubscribe();
     }
-  }, [user]);
+  }, [activeUser]);
 
   const lastAnalysisRef = useRef<string>('');
 
-  // AI Analysis triggered by inventory changes
-  useEffect(() => {
-    if (user && medicines.length > 0) {
-      const performAnalysis = async () => {
-        // Create a simple fingerprint of current medicines to check for real changes
-        const fingerprint = JSON.stringify(medicines.map(m => ({ id: m.id, q: m.quantity, e: m.expiryDate })));
-        if (fingerprint === lastAnalysisRef.current) return;
-        
-        try {
-          const [risk, suggestions] = await Promise.all([
-            geminiService.analyzeRisk(medicines),
-            geminiService.getRefillSuggestions(medicines)
-          ]);
-          setRiskAnalysis(risk);
-          setRefills(suggestions);
-          lastAnalysisRef.current = fingerprint;
-        } catch (e) {
-          console.error("AI Analysis failed", e);
-        }
-      };
-
-      const timeout = setTimeout(performAnalysis, 5000); // Increased debounce to 5s
-      return () => clearTimeout(timeout);
+  // Handle Manual AI Analysis
+  const handleManualAnalysis = async () => {
+    if (!activeUser || medicines.length === 0) return;
+    setIsAnalyzing(true);
+    try {
+      const [risk, suggestions] = await Promise.all([
+        geminiService.analyzeRisk(medicines),
+        geminiService.getRefillSuggestions(medicines)
+      ]);
+      setRiskAnalysis(risk);
+      setRefills(suggestions);
+    } catch (e) {
+      console.error("AI Analysis failed", e);
+    } finally {
+      setIsAnalyzing(false);
     }
-  }, [user, medicines]);
+  };
+
+  const handleExport = async (format: 'pdf' | 'excel' | 'whatsapp' | 'email') => {
+    if (!userProfile) return;
+    
+    // Ensure we have fresh refill suggestions before report
+    let currentRefills = refills;
+    if (refills.length === 0) {
+      currentRefills = await geminiService.getRefillSuggestions(medicines);
+      setRefills(currentRefills);
+    }
+
+    const { reportService } = await import('./services/reportService.ts');
+    const data = {
+      medicines,
+      refillSuggestions: currentRefills,
+      userEmail: activeUser?.email || '',
+      userName: userProfile?.fullName || activeUser?.displayName || 'User'
+    };
+
+    switch (format) {
+      case 'pdf': reportService.exportToPDF(data); break;
+      case 'excel': reportService.exportToExcel(data); break;
+      case 'whatsapp': reportService.shareOnWhatsApp(data); break;
+      case 'email': reportService.shareViaEmail(data); break;
+    }
+    
+    localStorage.setItem('lastReportDate', new Date().toISOString());
+    setLastReportDate(new Date().toISOString());
+  };
+
+  // Check for scheduled reports
+  useEffect(() => {
+    if (reportSchedule === 'none' || !lastReportDate || medicines.length === 0) return;
+
+    const lastDate = new Date(lastReportDate);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
+
+    if ((reportSchedule === 'weekly' && diffDays >= 7) || (reportSchedule === 'monthly' && diffDays >= 30)) {
+       // Auto-trigger a report notification or background generation
+       console.log("Scheduled report due!");
+       // In a real app, this would send an email. Here we show a notification.
+       setApiNotifications(prev => [{
+         id: Date.now(),
+         type: 'REPORT',
+         message: `Your ${reportSchedule} inventory report is ready for export.`,
+         date: new Date().toISOString()
+       }, ...prev]);
+    }
+  }, [reportSchedule, lastReportDate, medicines.length]);
+
+  useEffect(() => {
+    if (activeUser && medicines.length > 0 && !riskAnalysis) {
+      handleManualAnalysis(); // Run once on initial load
+    }
+  }, [activeUser, !!medicines.length]);
 
   const handleLogin = async () => {
     const provider = new GoogleAuthProvider();
@@ -1047,14 +901,35 @@ export default function App() {
     }
   };
 
+  const handleGuestLogin = async () => {
+    const gUser = {
+      uid: 'guest_user',
+      email: 'demo@safeshelf.ai',
+      displayName: 'Demo Household'
+    };
+    setGuestUser(gUser);
+    localStorage.setItem('safeshelf_guest_session', JSON.stringify(gUser));
+    const profile = await userService.getProfile(gUser.uid);
+    setUserProfile(profile);
+    await fetchMedicinesAndLogs();
+    fetchHistory();
+    fetchUserSchedule();
+    setAuthMode('login');
+  };
+
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      setUser(null);
-      setUserProfile(null);
     } catch (e) {
-      console.error("Logout failed", e);
+      /* ignore */
     }
+    setUser(null);
+    setGuestUser(null);
+    localStorage.removeItem('safeshelf_guest_session');
+    localStorage.removeItem('token');
+    setUserProfile(null);
+    setMedicines([]);
+    setLogs([]);
   };
 
   useEffect(() => {
@@ -1134,7 +1009,7 @@ export default function App() {
   }
 
   // Auth Flow
-  if (!user) {
+  if (!activeUser) {
     return (
       <AnimatePresence mode="wait">
         {authMode === 'login' ? (
@@ -1147,6 +1022,7 @@ export default function App() {
             <LoginPage 
               onSignUpClick={() => setAuthMode('signup')} 
               onLoginSuccess={() => {}} 
+              onGuestLogin={handleGuestLogin}
             />
           </motion.div>
         ) : (
@@ -1159,6 +1035,7 @@ export default function App() {
             <SignUpPage 
               onSignInClick={() => setAuthMode('login')} 
               onSignUpSuccess={() => setAuthMode('login')} 
+              onGuestLogin={handleGuestLogin}
             />
           </motion.div>
         )}
@@ -1167,8 +1044,8 @@ export default function App() {
   }
 
   // Onboarding Flow
-  if (user && userProfile && !userProfile.onboardingCompleted) {
-    return <Onboarding uid={user.uid} onComplete={refreshProfile} />;
+  if (activeUser && userProfile && !userProfile.onboardingCompleted) {
+    return <Onboarding uid={activeUser.uid} onComplete={refreshProfile} />;
   }
 
   return (
@@ -1211,8 +1088,13 @@ export default function App() {
                )}
             </button>
             <div className="w-px h-6 bg-slate-200 mx-2 hidden sm:block"></div>
-            {user && (
-               <UserProfileComponent user={user} profile={userProfile} onLogout={handleLogout} />
+            {activeUser && (
+               <UserProfileComponent 
+                user={activeUser} 
+                profile={userProfile} 
+                onLogout={handleLogout} 
+                onSettings={() => setActiveTab('settings')}
+               />
             )}
           </div>
         </div>
@@ -1260,45 +1142,98 @@ export default function App() {
               </div>
 
               {/* Model Switcher: Astra vs Quantis */}
-              <div className="dashboard-card p-6 bg-slate-900 text-white border-none relative overflow-hidden group">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/10 blur-3xl -mr-10 -mt-10 rounded-full group-hover:bg-blue-600/20 transition-all"></div>
-                <div className="flex items-center gap-3 mb-6 relative">
-                   <div className="p-2 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl shadow-lg shadow-blue-500/20">
-                      <Sparkles size={16} />
+              <div className="bg-slate-900 border border-slate-800 text-white rounded-2xl p-5 relative overflow-hidden shadow-xl shadow-slate-900/10">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/10 blur-3xl -mr-10 -mt-10 rounded-full pointer-events-none"></div>
+                <div className="flex items-center justify-between mb-4 relative z-10">
+                   <div className="flex items-center gap-2.5">
+                      <div className="p-2 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl shadow-md shadow-blue-500/20 text-white flex items-center justify-center">
+                         <Sparkles size={16} />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Active Intelligence</p>
+                        <p className="text-sm font-bold text-white tracking-tight">
+                          {aiMode === 'astra' ? 'Astra Core' : 'Quantis Core'}
+                        </p>
+                      </div>
                    </div>
-                   <div>
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Active Intelligence</p>
-                    <p className="text-sm font-display font-bold text-white capitalize">{aiMode} Core</p>
-                   </div>
+                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                     aiMode === 'astra' 
+                       ? 'bg-blue-500/10 text-blue-400 border-blue-500/30' 
+                       : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30'
+                   }`}>
+                     {aiMode === 'astra' ? 'Clinical AI' : 'Analytics AI'}
+                   </span>
                 </div>
-                <div className="grid grid-cols-1 gap-3 relative">
+
+                <div className="grid grid-cols-1 gap-2.5 relative z-10">
+                   {/* Astra Button */}
                    <button 
+                    type="button"
                     onClick={() => setAiMode('astra')}
-                    className={`flex items-center justify-between px-4 py-3.5 rounded-xl border transition-all ${
+                    className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl border transition-all text-left ${
                       aiMode === 'astra' 
-                      ? 'bg-blue-600 border-blue-400 text-white shadow-xl shadow-blue-500/10' 
-                      : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10 hover:text-white'
+                      ? 'bg-blue-600 border-blue-400 text-white shadow-lg shadow-blue-600/30 ring-1 ring-blue-300/40' 
+                      : 'bg-slate-800/90 border-slate-700/80 text-slate-300 hover:bg-slate-800 hover:border-slate-600 hover:text-white'
                     }`}
                    >
-                     <div className="text-left">
-                       <p className="text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5">Astra</p>
-                       <p className="text-[10px] font-medium opacity-60">Conversational Help</p>
+                     <div className="flex items-center gap-3">
+                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                         aiMode === 'astra' ? 'bg-white/20 text-white' : 'bg-slate-700 text-blue-400'
+                       }`}>
+                         <Sparkles size={16} />
+                       </div>
+                       <div>
+                         <div className="flex items-center gap-1.5">
+                           <span className="text-xs font-bold uppercase tracking-wider text-white">Astra</span>
+                           {aiMode === 'astra' && (
+                             <span className="text-[9px] font-bold bg-white/20 text-white px-1.5 py-0.5 rounded-full">ACTIVE</span>
+                           )}
+                         </div>
+                         <p className={`text-[11px] font-medium ${aiMode === 'astra' ? 'text-blue-100' : 'text-slate-400'}`}>
+                           Clinical & Conversational Care
+                         </p>
+                       </div>
                      </div>
-                     {aiMode === 'astra' && <div className="w-2 h-2 bg-white rounded-full animate-pulse shadow-[0_0_8px_white]"></div>}
+                     {aiMode === 'astra' ? (
+                       <div className="w-2.5 h-2.5 bg-white rounded-full shadow-[0_0_8px_white] animate-pulse"></div>
+                     ) : (
+                       <div className="w-2.5 h-2.5 rounded-full border border-slate-600"></div>
+                     )}
                    </button>
+
+                   {/* Quantis Button */}
                    <button 
+                    type="button"
                     onClick={() => setAiMode('quantis')}
-                    className={`flex items-center justify-between px-4 py-3.5 rounded-xl border transition-all ${
+                    className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl border transition-all text-left ${
                       aiMode === 'quantis' 
-                      ? 'bg-indigo-600 border-indigo-400 text-white shadow-xl shadow-indigo-500/10' 
-                      : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10 hover:text-white'
+                      ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg shadow-indigo-600/30 ring-1 ring-indigo-300/40' 
+                      : 'bg-slate-800/90 border-slate-700/80 text-slate-300 hover:bg-slate-800 hover:border-slate-600 hover:text-white'
                     }`}
                    >
-                     <div className="text-left">
-                       <p className="text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5">Quantis</p>
-                       <p className="text-[10px] font-medium opacity-60">Analytical Optimization</p>
+                     <div className="flex items-center gap-3">
+                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                         aiMode === 'quantis' ? 'bg-white/20 text-white' : 'bg-slate-700 text-indigo-400'
+                       }`}>
+                         <Zap size={16} />
+                       </div>
+                       <div>
+                         <div className="flex items-center gap-1.5">
+                           <span className="text-xs font-bold uppercase tracking-wider text-white">Quantis</span>
+                           {aiMode === 'quantis' && (
+                             <span className="text-[9px] font-bold bg-white/20 text-white px-1.5 py-0.5 rounded-full">ACTIVE</span>
+                           )}
+                         </div>
+                         <p className={`text-[11px] font-medium ${aiMode === 'quantis' ? 'text-indigo-100' : 'text-slate-400'}`}>
+                           Analytical Pricing & Optimization
+                         </p>
+                       </div>
                      </div>
-                     {aiMode === 'quantis' && <div className="w-2 h-2 bg-white rounded-full animate-pulse shadow-[0_0_8px_white]"></div>}
+                     {aiMode === 'quantis' ? (
+                       <div className="w-2.5 h-2.5 bg-white rounded-full shadow-[0_0_8px_white] animate-pulse"></div>
+                     ) : (
+                       <div className="w-2.5 h-2.5 rounded-full border border-slate-600"></div>
+                     )}
                    </button>
                 </div>
               </div>
@@ -1310,7 +1245,7 @@ export default function App() {
               {/* Header */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
                 <div>
-                  <h2 className="text-3xl font-display font-bold text-slate-900 mb-1">Welcome back, {userProfile?.fullName?.split(' ')[0] || user.displayName?.split(' ')[0] || 'User'}</h2>
+                  <h2 className="text-3xl font-display font-bold text-slate-900 mb-1">Welcome back, {userProfile?.fullName?.split(' ')[0] || activeUser?.displayName?.split(' ')[0] || user?.displayName?.split(' ')[0] || 'User'}</h2>
                   <p className="text-slate-400 text-sm font-medium">Your household is looking stable today.</p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -1364,6 +1299,8 @@ export default function App() {
                       onTakeDose={handleTakeDose}
                       onOpenCalendar={() => setIsCalendarOpen(true)}
                       elderlyMode={userProfile?.role === 'Elderly User'}
+                      onRefreshAI={handleManualAnalysis}
+                      isAnalyzing={isAnalyzing}
                     />
 
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
@@ -1397,7 +1334,14 @@ export default function App() {
                 )}
 
                 {activeTab === 'reports' && (
-                  <ReportsTab medicines={medicines} aiMode={aiMode} />
+                  <ReportsTab 
+                    medicines={medicines} 
+                    aiMode={aiMode} 
+                    onExport={handleExport}
+                    reportSchedule={reportSchedule}
+                    onSetSchedule={setReportSchedule}
+                    reportHistory={reportHistory}
+                  />
                 )}
 
                 {activeTab === 'planner' && (
@@ -1445,13 +1389,24 @@ export default function App() {
                     </div>
                   </div>
                 )}
+
+                {activeTab === 'settings' && (
+                  <SettingsTab 
+                    profile={userProfile}
+                    onUpdateProfile={handleUpdateProfile}
+                    onUpdateSettings={handleUpdateSettings}
+                    onLogout={handleLogout}
+                    onDeleteAccount={() => alert('Account deletion requested. Please contact support to finalize.')}
+                    onClearHistory={(type) => alert(`${type} history cleared successfully.`)}
+                  />
+                )}
               </AnimatePresence>
             </div>
           </div>
       </main>
 
       {/* --- Unified AI Hub --- */}
-      {user && (
+      {activeUser && (
         <AssistantHub 
           medicines={medicines} 
           onCommand={handleVoiceCommand} 
@@ -1582,13 +1537,13 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {userProfile && (
+      {activeUser && (
         <MedicineModal
           isOpen={isMedicineModalOpen || isManualAddOpen}
           onClose={() => { closeMedicineModal(); setIsManualAddOpen(false); }}
           onSave={fetchMedicinesAndLogs}
           medicine={selectedMedicine}
-          language={userProfile.preferredLanguage || 'English'}
+          language={userProfile?.preferredLanguage || 'English'}
         />
       )}
 

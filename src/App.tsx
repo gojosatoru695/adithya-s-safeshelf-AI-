@@ -837,7 +837,7 @@ export default function App() {
   };
 
   const handleExport = async (format: 'pdf' | 'excel' | 'whatsapp' | 'email') => {
-    if (!userProfile) return;
+    if (!activeUser) return;
     
     // Ensure we have fresh refill suggestions before report
     let currentRefills = refills;
